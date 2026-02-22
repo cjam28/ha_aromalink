@@ -75,6 +75,10 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "manual_rate_ml_per_hour": 0,
         }
 
+        # Snapshot of which programs were enabled before schedule_active turned off.
+        # Keyed by day number (0-6), value is list of 5 booleans.
+        self._saved_enabled_state = {}
+
         self._save_oil_state_cb = save_oil_state_cb
 
         if oil_state:
@@ -191,6 +195,13 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             for key in self._oil_calibration:
                 if key in calibration:
                     self._oil_calibration[key] = calibration[key]
+
+        saved_enabled = oil_state.get("saved_enabled_state", {})
+        if isinstance(saved_enabled, dict):
+            self._saved_enabled_state = {
+                int(k): v for k, v in saved_enabled.items()
+                if isinstance(v, list)
+            }
     
     def update_oil_tracking(
         self,
@@ -751,6 +762,7 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "prev_work_duration": self._prev_work_duration,
             "prev_pause_duration": self._prev_pause_duration,
             "calibration": self._oil_calibration.copy(),
+            "saved_enabled_state": self._saved_enabled_state.copy(),
         }
 
     async def fetch_work_time_settings(self, week_day=0):
@@ -1123,6 +1135,112 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         except Exception as e:
             _LOGGER.error(f"Error setting workset for device {self.device_id}: {e}")
             return False
+
+    def _cache_to_api_format(self, programs):
+        """Convert schedule cache format to set_workset API format."""
+        api_list = []
+        for prog in programs:
+            level_raw = prog.get("level", 1)
+            api_list.append({
+                "startTime": prog.get("start_time", "00:00"),
+                "endTime": prog.get("end_time", "23:59"),
+                "enabled": prog.get("enabled", 0),
+                "consistenceLevel": str(level_raw),
+                "workDuration": str(prog.get("work_sec", 10)),
+                "pauseDuration": str(prog.get("pause_sec", 120)),
+            })
+        return api_list
+
+    def _get_today_schedule_day(self):
+        """Return the schedule cache key for today (0=Sun .. 6=Sat)."""
+        from homeassistant.util import dt as dt_util
+        now = dt_util.now()
+        return (now.weekday() + 1) % 7
+
+    async def set_today_programs_enabled(self, enabled):
+        """Enable or disable programs for today and push to API.
+
+        When disabling: saves a snapshot of which programs were enabled,
+        then disables all programs.
+        When enabling: restores programs from the saved snapshot so only
+        the programs that were previously on get re-enabled.
+
+        Args:
+            enabled: True to restore/enable, False to disable all.
+
+        Returns:
+            True if the API call succeeded.
+        """
+        day = self._get_today_schedule_day()
+
+        if day not in self._schedule_cache:
+            await self.async_refresh_schedule(day)
+        programs = self._schedule_cache.get(day)
+        if not programs:
+            _LOGGER.warning("No schedule cached for today (day %s), cannot toggle programs", day)
+            return False
+
+        api_programs = self._cache_to_api_format(programs)
+
+        if not enabled:
+            self._saved_enabled_state[day] = [
+                p.get("enabled", 0) == 1 for p in programs
+            ]
+            self._request_oil_state_save()
+            for prog in api_programs:
+                prog["enabled"] = 0
+        else:
+            snapshot = self._saved_enabled_state.get(day)
+            if snapshot and len(snapshot) == len(api_programs):
+                for i, was_on in enumerate(snapshot):
+                    api_programs[i]["enabled"] = 1 if was_on else 0
+            else:
+                _LOGGER.info(
+                    "No saved snapshot for day %s — re-enabling programs "
+                    "that have non-default time windows", day)
+                for i, prog in enumerate(api_programs):
+                    has_custom_window = (
+                        programs[i].get("start_time", "00:00") != "00:00"
+                        or programs[i].get("end_time", "23:59") != "23:59"
+                    )
+                    prog["enabled"] = 1 if has_custom_window else 0
+                if not any(p["enabled"] for p in api_programs):
+                    api_programs[0]["enabled"] = 1
+
+        result = await self.set_workset([day], api_programs)
+        if result:
+            await self.async_refresh_schedule(day)
+        return result
+
+    async def set_program_enabled(self, day, program_num, enabled):
+        """Enable or disable a single program for a given day and push to API.
+
+        Args:
+            day: Schedule day number (0=Sun .. 6=Sat).
+            program_num: Program number (1-5).
+            enabled: True to enable, False to disable.
+
+        Returns:
+            True if the API call succeeded.
+        """
+        if day not in self._schedule_cache:
+            await self.async_refresh_schedule(day)
+        programs = self._schedule_cache.get(day)
+        if not programs:
+            _LOGGER.warning("No schedule cached for day %s", day)
+            return False
+
+        if program_num < 1 or program_num > len(programs):
+            _LOGGER.warning("Invalid program number %s", program_num)
+            return False
+
+        api_programs = self._cache_to_api_format(programs)
+        api_programs[program_num - 1]["enabled"] = 1 if enabled else 0
+
+        result = await self.set_workset([day], api_programs)
+        if result:
+            await self.async_refresh_schedule(day)
+        return result
 
     def get_device_info(self):
         """Get device info for entity setup."""

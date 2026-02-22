@@ -17,6 +17,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entities.append(AromaLinkSwitch(coordinator, entry, device_id, device_name))
         entities.append(AromaLinkFanSwitch(coordinator, entry, device_id, device_name))
         entities.append(AromaLinkProgramEnabled(coordinator, entry, device_id, device_name))
+        entities.append(AromaLinkScheduleActiveSwitch(coordinator, entry, device_id, device_name))
         day_names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
         for day_num, day_name in enumerate(day_names):
             entities.append(AromaLinkProgramDaySwitch(coordinator, entry, device_id, device_name, day_num, day_name))
@@ -156,27 +157,82 @@ class AromaLinkProgramEnabled(CoordinatorEntity, SwitchEntity):
         )
 
     async def async_turn_on(self, **kwargs):
-        """Enable the program."""
+        """Enable the current editor program and push to device."""
         program_num = self.coordinator._current_program
         day = self.coordinator._current_day
-        if day not in self.coordinator._schedule_cache:
-            await self.coordinator.async_refresh_schedule(day)
-        if day in self.coordinator._schedule_cache:
-            schedule = self.coordinator._schedule_cache[day]
-            if len(schedule) >= program_num:
-                schedule[program_num - 1]["enabled"] = 1
+        await self.coordinator.set_program_enabled(day, program_num, True)
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):
-        """Disable the program."""
+        """Disable the current editor program and push to device."""
         program_num = self.coordinator._current_program
         day = self.coordinator._current_day
-        if day not in self.coordinator._schedule_cache:
-            await self.coordinator.async_refresh_schedule(day)
-        if day in self.coordinator._schedule_cache:
-            schedule = self.coordinator._schedule_cache[day]
-            if len(schedule) >= program_num:
-                schedule[program_num - 1]["enabled"] = 0
+        await self.coordinator.set_program_enabled(day, program_num, False)
+        self.async_write_ha_state()
+
+
+class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
+    """Switch to enable/disable all programs for today on the device.
+
+    Provides a silent alternative to the power toggle — toggling schedule
+    programs makes the diffuser start or stop without the audible beep.
+    Ideal for use in automations.
+    """
+
+    def __init__(self, coordinator, entry, device_id, device_name):
+        super().__init__(coordinator)
+        self._entry = entry
+        self._device_id = device_id
+        self._name = f"{device_name} Schedule Active"
+        self._unique_id = f"{entry.data['username']}_{device_id}_schedule_active"
+        self._attr_icon = "mdi:calendar-check"
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def unique_id(self):
+        return self._unique_id
+
+    @property
+    def is_on(self):
+        """True if any program for today is enabled."""
+        day = self.coordinator._get_today_schedule_day()
+        programs = self.coordinator._schedule_cache.get(day)
+        if not programs:
+            return False
+        return any(p.get("enabled", 0) == 1 for p in programs)
+
+    @property
+    def device_info(self):
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{self._entry.data['username']}_{self._device_id}")},
+            name=self.coordinator.device_name,
+            manufacturer="Aroma-Link",
+            model="Diffuser",
+        )
+
+    @property
+    def extra_state_attributes(self):
+        day = self.coordinator._get_today_schedule_day()
+        programs = self.coordinator._schedule_cache.get(day, [])
+        enabled_nums = [
+            i + 1 for i, p in enumerate(programs) if p.get("enabled", 0) == 1
+        ]
+        return {
+            "schedule_day": day,
+            "enabled_programs": enabled_nums,
+        }
+
+    async def async_turn_on(self, **kwargs):
+        """Enable all programs for today and push to device."""
+        await self.coordinator.set_today_programs_enabled(True)
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs):
+        """Disable all programs for today and push to device."""
+        await self.coordinator.set_today_programs_enabled(False)
         self.async_write_ha_state()
 
 

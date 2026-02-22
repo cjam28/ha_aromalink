@@ -35,7 +35,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["switch", "button", "number", "sensor", "select", "text"]
+PLATFORMS = ["switch", "button", "number", "sensor", "select", "text", "binary_sensor"]
 
 SET_SCHEDULER_SCHEMA = vol.Schema({
     vol.Required(ATTR_WORK_DURATION): vol.All(vol.Coerce(int), vol.Range(min=5, max=900)),
