@@ -133,6 +133,9 @@ async def async_setup(hass: HomeAssistant, config: dict):
     
     # Register the custom card's static path
     await _register_frontend_resources(hass)
+
+    # Install automation blueprints into HA config
+    await _install_blueprints(hass)
     
     return True
 
@@ -205,6 +208,50 @@ async def _add_lovelace_resource(hass: HomeAssistant, url_path: str):
         _LOGGER.info(f"Registered Lovelace resource: {url_path}")
     except Exception as e:
         _LOGGER.warning(f"Could not auto-register Lovelace resource: {e}")
+
+
+async def _install_blueprints(hass: HomeAssistant):
+    """Copy bundled blueprint YAML files into HA's blueprints directory."""
+    import shutil
+
+    source_dir = os.path.join(
+        os.path.dirname(__file__), "blueprints", "automation"
+    )
+    if not os.path.isdir(source_dir):
+        _LOGGER.debug("No bundled blueprints directory found at %s", source_dir)
+        return
+
+    target_dir = hass.config.path(
+        "blueprints", "automation", "aroma_link_integration"
+    )
+
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+    except OSError as exc:
+        _LOGGER.warning("Could not create blueprints directory %s: %s", target_dir, exc)
+        return
+
+    installed = 0
+    for filename in os.listdir(source_dir):
+        if not filename.endswith(".yaml"):
+            continue
+        src = os.path.join(source_dir, filename)
+        dst = os.path.join(target_dir, filename)
+
+        if os.path.exists(dst) and os.path.getmtime(src) <= os.path.getmtime(dst):
+            continue
+
+        try:
+            shutil.copy2(src, dst)
+            installed += 1
+            _LOGGER.debug("Installed blueprint: %s", filename)
+        except OSError as exc:
+            _LOGGER.warning("Failed to install blueprint %s: %s", filename, exc)
+
+    if installed:
+        _LOGGER.info(
+            "Installed %d Aroma-Link blueprint(s) to %s", installed, target_dir
+        )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):

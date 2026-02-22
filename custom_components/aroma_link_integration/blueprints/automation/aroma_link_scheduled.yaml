@@ -1,0 +1,85 @@
+blueprint:
+  name: "Aroma-Link: Scheduled Diffuser with HVAC"
+  description: >
+    Automatically enables/disables the diffuser schedule when your HVAC fan
+    turns on or off. Only runs during scheduled hours and when someone is home.
+  domain: automation
+  author: cjam28
+  source_url: https://raw.githubusercontent.com/cjam28/homeassistant_aroma-link/master/custom_components/aroma_link_integration/blueprints/automation/aroma_link_scheduled.yaml
+  input:
+    hvac_entity:
+      name: HVAC / Thermostat
+      description: The climate entity whose fan state triggers the diffuser.
+      selector:
+        entity:
+          domain: climate
+    occupancy_sensor:
+      name: Occupancy Sensor
+      description: Binary sensor that indicates someone is home (e.g. an aggregate of room sensors).
+      selector:
+        entity:
+          domain: binary_sensor
+    scheduled_on_sensor:
+      name: Scheduled On Sensor
+      description: "The Aroma-Link 'Scheduled On' binary sensor (binary_sensor.*_scheduled_on)."
+      selector:
+        entity:
+          domain: binary_sensor
+    schedule_active_switch:
+      name: Schedule Active Switch
+      description: "The Aroma-Link 'Schedule Active' switch (switch.*_schedule_active)."
+      selector:
+        entity:
+          domain: switch
+    fan_on_delay:
+      name: Fan On Delay
+      description: Minutes to wait after the HVAC fan turns on before enabling the diffuser.
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 30
+          unit_of_measurement: minutes
+
+mode: single
+
+triggers:
+  - trigger: state
+    entity_id: !input hvac_entity
+    attribute: fan
+    from: "off"
+    to: "on"
+    for:
+      minutes: !input fan_on_delay
+    id: hvac_fan_on
+  - trigger: state
+    entity_id: !input hvac_entity
+    attribute: fan
+    from: "on"
+    to: "off"
+    id: hvac_fan_off
+
+conditions:
+  - condition: state
+    entity_id: !input occupancy_sensor
+    state: "on"
+  - condition: state
+    entity_id: !input scheduled_on_sensor
+    state: "on"
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: hvac_fan_on
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: !input schedule_active_switch
+      - conditions:
+          - condition: trigger
+            id: hvac_fan_off
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: !input schedule_active_switch

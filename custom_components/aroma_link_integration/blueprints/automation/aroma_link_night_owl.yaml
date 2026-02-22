@@ -1,0 +1,76 @@
+blueprint:
+  name: "Aroma-Link: Night Owl (After-Hours Presence)"
+  description: >
+    Silently enables/disables the Night Owl program (P5) when room presence
+    sensors detect someone is up outside of scheduled hours. Uses program
+    toggle instead of power toggle so the diffuser operates without beeping.
+  domain: automation
+  author: cjam28
+  source_url: https://raw.githubusercontent.com/cjam28/homeassistant_aroma-link/master/custom_components/aroma_link_integration/blueprints/automation/aroma_link_night_owl.yaml
+  input:
+    presence_sensors:
+      name: Presence Sensors
+      description: >
+        Room presence or occupancy sensors that indicate someone is awake
+        and moving around (e.g. living room, kitchen). Select one or more.
+      selector:
+        entity:
+          domain: binary_sensor
+          multiple: true
+    scheduled_on_sensor:
+      name: Scheduled On Sensor
+      description: "The Aroma-Link 'Scheduled On' binary sensor (binary_sensor.*_scheduled_on)."
+      selector:
+        entity:
+          domain: binary_sensor
+    night_owl_switch:
+      name: Night Owl Switch
+      description: "The Aroma-Link 'Night Owl' switch (switch.*_night_owl)."
+      selector:
+        entity:
+          domain: switch
+    off_delay:
+      name: Turn-Off Delay
+      description: Minutes to wait after all presence sensors clear before disabling the diffuser.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 60
+          unit_of_measurement: minutes
+
+mode: single
+
+triggers:
+  - trigger: state
+    entity_id: !input presence_sensors
+    to: "on"
+    id: presence_on
+  - trigger: state
+    entity_id: !input presence_sensors
+    to: "off"
+    for:
+      minutes: !input off_delay
+    id: presence_off
+
+conditions:
+  - condition: state
+    entity_id: !input scheduled_on_sensor
+    state: "off"
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: presence_on
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: !input night_owl_switch
+      - conditions:
+          - condition: trigger
+            id: presence_off
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: !input night_owl_switch

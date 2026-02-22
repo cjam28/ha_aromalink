@@ -1,0 +1,154 @@
+blueprint:
+  name: "Aroma-Link: Full Diffuser Control (Schedule + Night Owl)"
+  description: >
+    All-in-one automation that handles both scheduled operation (tied to HVAC fan)
+    and after-hours Night Owl mode (tied to room presence sensors). During
+    scheduled hours the diffuser follows the HVAC fan. Outside scheduled hours
+    it activates the Night Owl program (P5) when presence is detected.
+  domain: automation
+  author: cjam28
+  source_url: https://raw.githubusercontent.com/cjam28/homeassistant_aroma-link/master/custom_components/aroma_link_integration/blueprints/automation/aroma_link_full.yaml
+  input:
+    hvac_entity:
+      name: HVAC / Thermostat
+      description: The climate entity whose fan state triggers the diffuser during scheduled hours.
+      selector:
+        entity:
+          domain: climate
+    occupancy_sensor:
+      name: Home Occupancy Sensor
+      description: Binary sensor that indicates someone is home (used for scheduled-hours condition).
+      selector:
+        entity:
+          domain: binary_sensor
+    presence_sensors:
+      name: Room Presence Sensors (After-Hours)
+      description: >
+        Specific room sensors that detect someone is awake and moving around
+        after hours (e.g. living room, kitchen). Select one or more.
+      selector:
+        entity:
+          domain: binary_sensor
+          multiple: true
+    scheduled_on_sensor:
+      name: Scheduled On Sensor
+      description: "The Aroma-Link 'Scheduled On' binary sensor (binary_sensor.*_scheduled_on)."
+      selector:
+        entity:
+          domain: binary_sensor
+    schedule_active_switch:
+      name: Schedule Active Switch
+      description: "The Aroma-Link 'Schedule Active' switch (switch.*_schedule_active)."
+      selector:
+        entity:
+          domain: switch
+    night_owl_switch:
+      name: Night Owl Switch
+      description: "The Aroma-Link 'Night Owl' switch (switch.*_night_owl)."
+      selector:
+        entity:
+          domain: switch
+    fan_on_delay:
+      name: Fan On Delay
+      description: Minutes to wait after the HVAC fan turns on before enabling the diffuser.
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 30
+          unit_of_measurement: minutes
+    presence_off_delay:
+      name: Presence Off Delay
+      description: Minutes to wait after all presence sensors clear before disabling Night Owl.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 60
+          unit_of_measurement: minutes
+
+mode: single
+
+triggers:
+  # --- Scheduled-hours triggers (HVAC fan) ---
+  - trigger: state
+    entity_id: !input hvac_entity
+    attribute: fan
+    from: "off"
+    to: "on"
+    for:
+      minutes: !input fan_on_delay
+    id: hvac_fan_on
+  - trigger: state
+    entity_id: !input hvac_entity
+    attribute: fan
+    from: "on"
+    to: "off"
+    id: hvac_fan_off
+  # --- After-hours triggers (room presence) ---
+  - trigger: state
+    entity_id: !input presence_sensors
+    to: "on"
+    id: presence_on
+  - trigger: state
+    entity_id: !input presence_sensors
+    to: "off"
+    for:
+      minutes: !input presence_off_delay
+    id: presence_off
+
+actions:
+  - choose:
+      # HVAC fan ON during schedule → enable schedule
+      - conditions:
+          - condition: trigger
+            id: hvac_fan_on
+          - condition: state
+            entity_id: !input occupancy_sensor
+            state: "on"
+          - condition: state
+            entity_id: !input scheduled_on_sensor
+            state: "on"
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: !input schedule_active_switch
+
+      # HVAC fan OFF during schedule → disable schedule
+      - conditions:
+          - condition: trigger
+            id: hvac_fan_off
+          - condition: state
+            entity_id: !input occupancy_sensor
+            state: "on"
+          - condition: state
+            entity_id: !input scheduled_on_sensor
+            state: "on"
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: !input schedule_active_switch
+
+      # Presence ON outside schedule → enable Night Owl
+      - conditions:
+          - condition: trigger
+            id: presence_on
+          - condition: state
+            entity_id: !input scheduled_on_sensor
+            state: "off"
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: !input night_owl_switch
+
+      # Presence OFF outside schedule → disable Night Owl
+      - conditions:
+          - condition: trigger
+            id: presence_off
+          - condition: state
+            entity_id: !input scheduled_on_sensor
+            state: "off"
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: !input night_owl_switch
