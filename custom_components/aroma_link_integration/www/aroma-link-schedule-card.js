@@ -1279,6 +1279,7 @@ class AromaLinkScheduleCard extends HTMLElement {
     const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const programs = [1, 2, 3, 4, 5];
+    const programLabels = { 1: 'P1', 2: 'P2', 3: 'P3', 4: 'P4', 5: 'Night Owl' };
     const today = new Date().getDay();
     const todayIndex = today;
 
@@ -1398,9 +1399,9 @@ class AromaLinkScheduleCard extends HTMLElement {
               ${programs.map(prog => {
                 const allDaysSelected = [0,1,2,3,4,5,6].every(d => cells.has(`${d}-${prog}`));
                 return `
-                  <div class="grid-cell header program-label ${allDaysSelected ? 'row-selected' : ''}" 
+                  <div class="grid-cell header program-label ${allDaysSelected ? 'row-selected' : ''}${prog === 5 ? ' night-owl' : ''}"
                        data-action="select-row" data-program="${prog}" data-device="${sensor.deviceName}">
-                    P${prog}
+                    ${programLabels[prog]}
                   </div>
                   ${days.map((day, dayIdx) => {
                     const cellData = this._getCellData(sensor, dayIdx, prog);
@@ -1458,7 +1459,7 @@ class AromaLinkScheduleCard extends HTMLElement {
               <div class="editor-header">
                 ${selectionCount > 0 
                   ? `Editing ${selectionCount} cell${selectionCount > 1 ? 's' : ''} ${multiProgSameDay ? '(times locked)' : ''}` 
-                  : 'Click cells to select, click P1-P5 for rows, click day headers for columns'}
+                  : 'Click cells to select, click row labels for rows, click day headers for columns'}
               </div>
               
               <!-- Row 1: Settings -->
@@ -2520,6 +2521,13 @@ class AromaLinkScheduleCard extends HTMLElement {
       .grid-cell.day-header:hover {
         background: rgba(3, 169, 244, 0.15);
         color: var(--primary-text-color);
+      }
+
+      .grid-cell.program-label.night-owl {
+        background: var(--card-background-color, #1a1a2e);
+        color: #b39ddb;
+        font-size: var(--font-xs, 0.65rem);
+        font-weight: 600;
       }
       
       .grid-cell.row-selected,

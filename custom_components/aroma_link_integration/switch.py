@@ -18,6 +18,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entities.append(AromaLinkFanSwitch(coordinator, entry, device_id, device_name))
         entities.append(AromaLinkProgramEnabled(coordinator, entry, device_id, device_name))
         entities.append(AromaLinkScheduleActiveSwitch(coordinator, entry, device_id, device_name))
+        entities.append(AromaLinkNightOwlSwitch(coordinator, entry, device_id, device_name))
         day_names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
         for day_num, day_name in enumerate(day_names):
             entities.append(AromaLinkProgramDaySwitch(coordinator, entry, device_id, device_name, day_num, day_name))
@@ -233,6 +234,75 @@ class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
     async def async_turn_off(self, **kwargs):
         """Disable all programs for today and push to device."""
         await self.coordinator.set_today_programs_enabled(False)
+        self.async_write_ha_state()
+
+
+class AromaLinkNightOwlSwitch(CoordinatorEntity, SwitchEntity):
+    """Switch to silently enable/disable Program 5 (Night Owl) for today.
+
+    P5 should be configured with an after-hours time window (e.g. 22:00-06:00).
+    Toggling this switch enables/disables only P5 on the device, leaving
+    P1-P4 untouched. Ideal for presence-based after-hours automations.
+    """
+
+    PROGRAM_NUM = 5
+
+    def __init__(self, coordinator, entry, device_id, device_name):
+        super().__init__(coordinator)
+        self._entry = entry
+        self._device_id = device_id
+        self._name = f"{device_name} Night Owl"
+        self._unique_id = f"{entry.data['username']}_{device_id}_night_owl"
+        self._attr_icon = "mdi:weather-night"
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def unique_id(self):
+        return self._unique_id
+
+    @property
+    def is_on(self):
+        """True if P5 is enabled for today."""
+        day = self.coordinator._get_today_schedule_day()
+        programs = self.coordinator._schedule_cache.get(day)
+        if not programs or len(programs) < self.PROGRAM_NUM:
+            return False
+        return programs[self.PROGRAM_NUM - 1].get("enabled", 0) == 1
+
+    @property
+    def device_info(self):
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{self._entry.data['username']}_{self._device_id}")},
+            name=self.coordinator.device_name,
+            manufacturer="Aroma-Link",
+            model="Diffuser",
+        )
+
+    @property
+    def extra_state_attributes(self):
+        day = self.coordinator._get_today_schedule_day()
+        programs = self.coordinator._schedule_cache.get(day, [])
+        p5 = programs[self.PROGRAM_NUM - 1] if len(programs) >= self.PROGRAM_NUM else {}
+        return {
+            "schedule_day": day,
+            "program": self.PROGRAM_NUM,
+            "start_time": p5.get("start_time", "unknown"),
+            "end_time": p5.get("end_time", "unknown"),
+        }
+
+    async def async_turn_on(self, **kwargs):
+        """Enable P5 for today and push to device."""
+        day = self.coordinator._get_today_schedule_day()
+        await self.coordinator.set_program_enabled(day, self.PROGRAM_NUM, True)
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs):
+        """Disable P5 for today and push to device."""
+        day = self.coordinator._get_today_schedule_day()
+        await self.coordinator.set_program_enabled(day, self.PROGRAM_NUM, False)
         self.async_write_ha_state()
 
 
