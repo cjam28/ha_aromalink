@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import logging
 from datetime import timedelta
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -1036,7 +1037,7 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                 f"Error fetching workset for device {self.device_id}: {e}")
             return None
 
-    async def set_workset(self, week_days, work_time_list, skip_refresh=False):
+    async def set_workset(self, week_days, work_time_list, skip_refresh=False, updated_cache_data=None):
         """Set workset schedule for specified days.
         
         Args:
@@ -1049,6 +1050,9 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                 - pauseDuration: string (seconds)
                 - consistenceLevel: "1", "2", or "3" (A, B, or C)
             skip_refresh: If True, skip the automatic refresh after save (for batch operations)
+            updated_cache_data: If provided, store this data in the schedule cache
+                instead of clearing it. Should be a list of program dicts in cache
+                format (start_time, end_time, work_sec, pause_sec, level, enabled).
                 
         Returns:
             True if successful, False otherwise
@@ -1115,9 +1119,11 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                     if response_json.get("code") == 200:
                         _LOGGER.info(
                             f"Successfully set workset for device {self.device_id} to days {week_days}")
-                        # Clear cache for updated days
                         for day in week_days:
-                            if day in self._schedule_cache:
+                            if updated_cache_data is not None:
+                                self._schedule_cache[day] = updated_cache_data
+                                _LOGGER.debug(f"Updated schedule cache for day {day} with fresh data")
+                            elif day in self._schedule_cache:
                                 del self._schedule_cache[day]
                                 _LOGGER.debug(f"Cleared schedule cache for day {day}")
                         if not skip_refresh:
@@ -1202,19 +1208,22 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             self._request_oil_state_save()
 
         api_programs = self._cache_to_api_format(fresh_programs)
+        updated_cache = copy.deepcopy(fresh_programs)
 
         if not enabled:
-            for prog in api_programs[:SCHEDULE_PROGRAMS]:
+            for i, prog in enumerate(api_programs[:SCHEDULE_PROGRAMS]):
                 prog["enabled"] = 0
+                updated_cache[i]["enabled"] = 0
         else:
             snapshot = self._saved_enabled_state[day]
             for i, was_on in enumerate(snapshot):
                 api_programs[i]["enabled"] = 1 if was_on else 0
+                updated_cache[i]["enabled"] = 1 if was_on else 0
 
         for i, p in enumerate(api_programs):
             _LOGGER.info("  Pushing P%d: %s", i + 1, p)
 
-        return await self.set_workset([day], api_programs, skip_refresh=True)
+        return await self.set_workset([day], api_programs, skip_refresh=True, updated_cache_data=updated_cache)
 
     async def set_program_enabled(self, day, program_num, enabled):
         """Enable or disable a single program on the device.
@@ -1260,7 +1269,10 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         for i, p in enumerate(api_programs):
             _LOGGER.info("  Pushing P%d: %s", i + 1, p)
 
-        return await self.set_workset([day], api_programs, skip_refresh=True)
+        updated_cache = copy.deepcopy(fresh_programs)
+        updated_cache[program_num - 1]["enabled"] = 1 if enabled else 0
+
+        return await self.set_workset([day], api_programs, skip_refresh=True, updated_cache_data=updated_cache)
 
     def update_user_intent(self, day=None):
         """Capture the user's intended P1-P4 enabled states from the cache.
