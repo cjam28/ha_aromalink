@@ -235,13 +235,13 @@ async def _add_lovelace_resource(hass: HomeAssistant, url_path: str):
                 return
             await resources_collection.async_update_item(
                 existing_item["id"],
-                {"url": url_path, "type": "module"}
+                {"url": url_path}
             )
             _LOGGER.info(f"Updated Lovelace resource: {url_path}")
         else:
             await resources_collection.async_create_item({
                 "url": url_path,
-                "type": "module"
+                "res_type": "module"
             })
             _LOGGER.info(f"Registered Lovelace resource: {url_path}")
     except Exception as e:
