@@ -396,11 +396,30 @@ class AromaLinkScheduleCard extends HTMLElement {
   _hasMultipleProgramsSameDay(deviceName) {
     const cells = this._getSelectedCells(deviceName);
     const dayProgramCount = {};
-    
+
     for (const key of cells) {
       const [day] = key.split('-').map(Number);
       dayProgramCount[day] = (dayProgramCount[day] || 0) + 1;
       if (dayProgramCount[day] > 1) return true;
+    }
+    return false;
+  }
+
+  _selectionIsNightOwlOnly(deviceName) {
+    const cells = this._getSelectedCells(deviceName);
+    if (cells.size === 0) return false;
+    for (const key of cells) {
+      const prog = parseInt(key.split('-')[1]);
+      if (prog !== 5) return false;
+    }
+    return true;
+  }
+
+  _selectionHasNightOwl(deviceName) {
+    const cells = this._getSelectedCells(deviceName);
+    for (const key of cells) {
+      const prog = parseInt(key.split('-')[1]);
+      if (prog === 5) return true;
     }
     return false;
   }
@@ -528,14 +547,15 @@ class AromaLinkScheduleCard extends HTMLElement {
       daySelections[day].push(prog);
     }
 
-    // For overlap check when times are editable
+    // For overlap check when times are editable (skip for Night Owl cells)
     if (!multiProgSameDay) {
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
       const overlapDays = [];
-      
-      for (const [dayStr, programs] of Object.entries(daySelections)) {
+
+      for (const [dayStr, progs] of Object.entries(daySelections)) {
         const day = parseInt(dayStr);
-        for (const program of programs) {
+        for (const program of progs) {
+          if (program === 5) continue; // Night Owl excluded from overlap checks
           const overlaps = this._checkOverlaps(
             sensor, day, program,
             editorValues.startTime,
@@ -559,9 +579,20 @@ class AromaLinkScheduleCard extends HTMLElement {
       const day = parseInt(dayStr);
       const prog = parseInt(progStr);
       
-      // If multi-program same day, preserve existing times from API or previous stage
+      const isNightOwl = (prog === 5);
+
       let stagedData;
-      if (multiProgSameDay) {
+      if (isNightOwl) {
+        // Night Owl: always disabled on device, times locked to 00:00-23:59
+        stagedData = {
+          enabled: false,
+          startTime: '00:00',
+          endTime: '23:59',
+          workSec: editorValues.workSec,
+          pauseSec: editorValues.pauseSec,
+          level: editorValues.level
+        };
+      } else if (multiProgSameDay) {
         const existing = staged.get(key) || this._getCellDataFromMatrix(sensor, day, prog);
         stagedData = {
           enabled: editorValues.enabled,
@@ -718,7 +749,8 @@ class AromaLinkScheduleCard extends HTMLElement {
         for (let prog = 1; prog <= 5; prog++) {
           // Use staged data if available, otherwise use existing matrix data
           const stagedData = programs[prog];
-          const existingData = dayMatrix[`program${prog}`] || {};
+          const existingData = dayMatrix[`program_${prog}`] || {};
+          const levelMap = {1: 'A', 2: 'B', 3: 'C', 'A': 'A', 'B': 'B', 'C': 'C'};
           
           if (stagedData) {
             dayPrograms.push({
@@ -730,14 +762,14 @@ class AromaLinkScheduleCard extends HTMLElement {
               pauseSec: stagedData.pauseSec || 120
             });
           } else {
-            // Use existing data from matrix
+            // Use existing data from matrix (preserve current device state)
             dayPrograms.push({
-              startTime: existingData.startTime || '00:00',
-              endTime: existingData.endTime || '23:59',
-              enabled: existingData.enabled ? 1 : 0,
-              level: existingData.level || 'A',
-              workSec: existingData.workSec || 10,
-              pauseSec: existingData.pauseSec || 120
+              startTime: (existingData.start_time || existingData.startTime || '00:00').substring(0, 5),
+              endTime: (existingData.end_time || existingData.endTime || '23:59').substring(0, 5),
+              enabled: (existingData.enabled === true || existingData.enabled === 1) ? 1 : 0,
+              level: levelMap[existingData.level] || 'A',
+              workSec: existingData.work || existingData.work_sec || existingData.workSec || 10,
+              pauseSec: existingData.pause || existingData.pause_sec || existingData.pauseSec || 120
             });
           }
         }
@@ -804,26 +836,27 @@ class AromaLinkScheduleCard extends HTMLElement {
     const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const dayData = matrix[dayNames[day]] || {};
     const overlaps = [];
-    
+
     const newStartMin = this._timeToMinutes(newStart);
     const newEndMin = this._timeToMinutes(newEnd);
-    
-    for (let p = 1; p <= 5; p++) {
+
+    // Only check P1-P4; P5 (Night Owl) is excluded from overlap checks
+    for (let p = 1; p <= 4; p++) {
       if (p === editingProgram) continue;
-      
+
       const progData = dayData[`program_${p}`] || {};
       if (!progData.enabled) continue;
-      
+
       const existStart = (progData.start_time || progData.start || '00:00').substring(0, 5);
       const existEnd = (progData.end_time || progData.end || '23:59').substring(0, 5);
       const existStartMin = this._timeToMinutes(existStart);
       const existEndMin = this._timeToMinutes(existEnd);
-      
+
       if (newStartMin < existEndMin && newEndMin > existStartMin) {
         overlaps.push({ program: p, start: existStart, end: existEnd });
       }
     }
-    
+
     return overlaps;
   }
 
@@ -1497,27 +1530,35 @@ class AromaLinkScheduleCard extends HTMLElement {
             <!-- Editor -->
             ${(() => {
               const multiProgSameDay = this._hasMultipleProgramsSameDay(sensor.deviceName);
-              const timeDisabled = multiProgSameDay ? 'disabled' : '';
-              const timeDisabledClass = multiProgSameDay ? 'time-disabled' : '';
+              const nightOwlOnly = this._selectionIsNightOwlOnly(sensor.deviceName);
+              const hasMixed = this._selectionHasNightOwl(sensor.deviceName) && !nightOwlOnly;
+              const timeLocked = multiProgSameDay || nightOwlOnly;
+              const timeDisabled = timeLocked ? 'disabled' : '';
+              const timeDisabledClass = timeLocked ? 'time-disabled' : '';
+              const enabledLocked = nightOwlOnly;
+              let headerNote = '';
+              if (nightOwlOnly) headerNote = '(Night Owl: times locked, always disabled on device)';
+              else if (hasMixed) headerNote = '(mixed selection includes Night Owl)';
+              else if (multiProgSameDay) headerNote = '(times locked)';
               return `
             <div class="editor-section ${selectionCount === 0 ? 'dimmed' : ''}" data-device="${sensor.deviceName}">
               <div class="editor-header">
                 ${selectionCount > 0 
-                  ? `Editing ${selectionCount} cell${selectionCount > 1 ? 's' : ''} ${multiProgSameDay ? '(times locked)' : ''}` 
+                  ? `Editing ${selectionCount} cell${selectionCount > 1 ? 's' : ''} ${headerNote}` 
                   : 'Click cells to select, click row labels for rows, click day headers for columns'}
               </div>
               
               <!-- Row 1: Settings -->
               <div class="editor-row-inline">
                 <label class="toggle-label">
-                  <input type="checkbox" id="enabled-${sensor.deviceName}" data-field="enabled" data-device="${sensor.deviceName}" ${editorValues.enabled ? 'checked' : ''}>
-                  <span>Enabled</span>
+                  <input type="checkbox" id="enabled-${sensor.deviceName}" data-field="enabled" data-device="${sensor.deviceName}" ${editorValues.enabled && !enabledLocked ? 'checked' : ''} ${enabledLocked ? 'disabled' : ''}>
+                  <span>${nightOwlOnly ? 'Enabled (automation-controlled)' : 'Enabled'}</span>
                 </label>
                 
                 <div class="time-inputs ${timeDisabledClass}">
-                  <input type="time" class="time-input" id="startTime-${sensor.deviceName}" data-field="startTime" data-device="${sensor.deviceName}" value="${editorValues.startTime}" ${timeDisabled}>
+                  <input type="time" class="time-input" id="startTime-${sensor.deviceName}" data-field="startTime" data-device="${sensor.deviceName}" value="${nightOwlOnly ? '00:00' : editorValues.startTime}" ${timeDisabled}>
                   <span>-</span>
-                  <input type="time" class="time-input" id="endTime-${sensor.deviceName}" data-field="endTime" data-device="${sensor.deviceName}" value="${editorValues.endTime}" ${timeDisabled}>
+                  <input type="time" class="time-input" id="endTime-${sensor.deviceName}" data-field="endTime" data-device="${sensor.deviceName}" value="${nightOwlOnly ? '23:59' : editorValues.endTime}" ${timeDisabled}>
                 </div>
                 
                 <div class="num-inputs">
