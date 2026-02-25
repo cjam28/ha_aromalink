@@ -73,8 +73,7 @@ blueprint:
           max: 60
           unit_of_measurement: minutes
 
-mode: queued
-max_queued: 5
+mode: restart
 
 triggers:
   # --- HVAC activity triggers ---
