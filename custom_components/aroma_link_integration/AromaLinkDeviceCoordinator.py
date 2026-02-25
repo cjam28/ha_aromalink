@@ -1164,9 +1164,8 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
     async def set_today_programs_enabled(self, enabled):
         """Enable or disable P1-P4 on the device for today.
 
-        Uses the user's intended schedule (from _saved_enabled_state) as
-        the source of truth. Pushing to the API does NOT refresh the cache,
-        so the schedule card always shows the user's intended configuration.
+        Always fetches fresh data from the API before modifying to ensure
+        we never overwrite other programs with stale cached data.
 
         Args:
             enabled: True to restore user's P1-P4 settings on device,
@@ -1178,20 +1177,19 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         SCHEDULE_PROGRAMS = 4
         day = self._get_today_schedule_day()
 
-        if day not in self._schedule_cache:
-            await self.async_refresh_schedule(day)
-        programs = self._schedule_cache.get(day)
-        if not programs:
-            _LOGGER.warning("No schedule cached for today (day %s), cannot toggle programs", day)
+        # Always fetch fresh from API to avoid pushing stale data for other programs
+        fresh_programs = await self.fetch_workset_for_day(day)
+        if not fresh_programs:
+            _LOGGER.warning("Could not fetch schedule for today (day %s), cannot toggle programs", day)
             return False
 
         if day not in self._saved_enabled_state:
             self._saved_enabled_state[day] = [
-                p.get("enabled", 0) == 1 for p in programs[:SCHEDULE_PROGRAMS]
+                p.get("enabled", 0) == 1 for p in fresh_programs[:SCHEDULE_PROGRAMS]
             ]
             self._request_oil_state_save()
 
-        api_programs = self._cache_to_api_format(programs)
+        api_programs = self._cache_to_api_format(fresh_programs)
 
         if not enabled:
             for prog in api_programs[:SCHEDULE_PROGRAMS]:
@@ -1206,8 +1204,8 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
     async def set_program_enabled(self, day, program_num, enabled):
         """Enable or disable a single program on the device.
 
-        Pushes the change to the Aroma-Link API without refreshing the
-        cache, so the schedule card preserves the user's intended config.
+        Always fetches fresh data from the API before modifying to ensure
+        we never overwrite other programs with stale cached data.
 
         Args:
             day: Schedule day number (0=Sun .. 6=Sat).
@@ -1217,18 +1215,17 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         Returns:
             True if the API call succeeded.
         """
-        if day not in self._schedule_cache:
-            await self.async_refresh_schedule(day)
-        programs = self._schedule_cache.get(day)
-        if not programs:
-            _LOGGER.warning("No schedule cached for day %s", day)
+        # Always fetch fresh from API to avoid pushing stale data for other programs
+        fresh_programs = await self.fetch_workset_for_day(day)
+        if not fresh_programs:
+            _LOGGER.warning("Could not fetch schedule for day %s", day)
             return False
 
-        if program_num < 1 or program_num > len(programs):
+        if program_num < 1 or program_num > len(fresh_programs):
             _LOGGER.warning("Invalid program number %s", program_num)
             return False
 
-        api_programs = self._cache_to_api_format(programs)
+        api_programs = self._cache_to_api_format(fresh_programs)
         api_programs[program_num - 1]["enabled"] = 1 if enabled else 0
 
         return await self.set_workset([day], api_programs, skip_refresh=True)
