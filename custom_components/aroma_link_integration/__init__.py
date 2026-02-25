@@ -151,11 +151,15 @@ async def _register_frontend_resources(hass: HomeAssistant):
         _LOGGER.warning(f"Custom card not found at {card_path}")
         return
     
+    # Cache-busting: hash the file content so URL changes on every update
+    import hashlib
+    with open(card_path, "rb") as f:
+        file_hash = hashlib.md5(f.read()).hexdigest()[:8]
+    
     # Register static path so the file is accessible
     url_path = f"/aroma_link_integration/{card_file}"
     
     try:
-        # Register static path for serving the JS file
         await hass.http.async_register_static_paths([
             StaticPathConfig(url_path, card_path, cache_headers=False)
         ])
@@ -164,26 +168,25 @@ async def _register_frontend_resources(hass: HomeAssistant):
         _LOGGER.warning(f"Failed to register static path: {e}")
         return
     
-    # Add the resource to Lovelace
+    # Use versioned URL for Lovelace resource (forces browser to re-fetch on updates)
+    versioned_url = f"{url_path}?v={file_hash}"
+    
     try:
-        await _add_lovelace_resource(hass, url_path)
+        await _add_lovelace_resource(hass, versioned_url)
     except Exception as e:
         _LOGGER.warning(f"Failed to add Lovelace resource: {e}")
 
 
 async def _add_lovelace_resource(hass: HomeAssistant, url_path: str):
-    """Add the custom card to Lovelace resources if not already present."""
-    # Check if lovelace resources component is available
+    """Add or update the custom card in Lovelace resources."""
     if "lovelace" not in hass.data:
         _LOGGER.debug("Lovelace not yet loaded, will try via storage")
     
-    # Use the resources storage directly
     from homeassistant.components.lovelace.resources import ResourceStorageCollection
     
     resources_collection = hass.data.get("lovelace", {}).get("resources")
     
     if resources_collection is None:
-        # Lovelace resources not initialized yet, store for later
         hass.data.setdefault(DOMAIN, {})["pending_resource"] = url_path
         _LOGGER.info(
             f"Custom card resource will be available at: {url_path}\n"
@@ -193,19 +196,34 @@ async def _add_lovelace_resource(hass: HomeAssistant, url_path: str):
         )
         return
     
-    # Check if already registered
-    existing_urls = [r.get("url") for r in resources_collection.async_items()]
-    if url_path in existing_urls:
-        _LOGGER.debug(f"Resource already registered: {url_path}")
-        return
+    # Base URL without query params for matching existing entries
+    base_url = url_path.split("?")[0]
     
-    # Add the resource
+    # Find any existing resource matching our base URL
+    existing_item = None
+    for item in resources_collection.async_items():
+        item_url = item.get("url", "")
+        if item_url.split("?")[0] == base_url:
+            existing_item = item
+            break
+    
     try:
-        await resources_collection.async_create_item({
-            "url": url_path,
-            "type": "module"
-        })
-        _LOGGER.info(f"Registered Lovelace resource: {url_path}")
+        if existing_item:
+            if existing_item.get("url") == url_path:
+                _LOGGER.debug(f"Resource already up to date: {url_path}")
+                return
+            # Update existing resource with new versioned URL
+            await resources_collection.async_update_item(
+                existing_item["id"],
+                {"url": url_path, "type": "module"}
+            )
+            _LOGGER.info(f"Updated Lovelace resource: {url_path}")
+        else:
+            await resources_collection.async_create_item({
+                "url": url_path,
+                "type": "module"
+            })
+            _LOGGER.info(f"Registered Lovelace resource: {url_path}")
     except Exception as e:
         _LOGGER.warning(f"Could not auto-register Lovelace resource: {e}")
 

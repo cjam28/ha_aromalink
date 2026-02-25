@@ -1,5 +1,5 @@
 /**
- * Aroma-Link Schedule Card v2.7.0
+ * Aroma-Link Schedule Card v2.7.1
  * 
  * A complete dashboard card for Aroma-Link diffusers including:
  * - Compact manual controls (Power applies work/pause, Fan, Timed Run)
