@@ -161,3 +161,13 @@ reset_oil_runtime:
     device_id:
       description: "The ID of the device. Required if multiple devices are available."
       example: "device_12345"
+
+set_night_owl_active:
+  description: "Enable or disable the Night Owl program (P5) on the device for today. Used by automations to control P5 without toggling the user preference switch."
+  fields:
+    device_id:
+      description: "The ID of the device. Required if multiple devices are available."
+      example: "device_12345"
+    enabled:
+      description: "True to enable P5 on the device, false to disable."
+      example: true

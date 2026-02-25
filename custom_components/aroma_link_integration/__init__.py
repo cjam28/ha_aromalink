@@ -1162,6 +1162,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         schema=RESET_OIL_RUNTIME_SCHEMA
     )
 
+    async def set_night_owl_active_service(call: ServiceCall):
+        """Enable or disable P5 on the device (called by automation blueprints)."""
+        device_id = call.data.get("device_id")
+        enabled = call.data.get("enabled", False)
+
+        coordinator = None
+        if device_id and device_id in device_coordinators:
+            coordinator = device_coordinators[device_id]
+        elif len(device_coordinators) == 1:
+            coordinator = list(device_coordinators.values())[0]
+        else:
+            _LOGGER.error("Multiple devices available, must specify device_id for set_night_owl_active")
+            return
+
+        day = coordinator._get_today_schedule_day()
+        await coordinator.set_program_enabled(day, 5, enabled)
+
+    SET_NIGHT_OWL_ACTIVE_SCHEMA = vol.Schema({
+        vol.Optional("device_id"): cv.string,
+        vol.Optional("enabled"): cv.boolean,
+    })
+
+    hass.services.async_register(
+        DOMAIN,
+        "set_night_owl_active",
+        set_night_owl_active_service,
+        schema=SET_NIGHT_OWL_ACTIVE_SCHEMA
+    )
+
     # Use the new method
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

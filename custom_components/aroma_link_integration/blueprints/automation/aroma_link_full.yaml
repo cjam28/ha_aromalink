@@ -2,13 +2,16 @@ blueprint:
   name: "Aroma-Link: Full Diffuser Control (Schedule + Night Owl)"
   description: >
     Complete diffuser automation using an evaluate-and-set pattern. Every
-    trigger re-evaluates the current state and sets both switches accordingly:
+    trigger re-evaluates the current state and sets outputs accordingly:
 
       Schedule active = HVAC running + in scheduled window + home occupied
-      Night Owl       = HVAC running + outside schedule + room presence
+      Night Owl (P5)  = HVAC running + outside schedule + room presence
+                        + user has Night Owl preference enabled
 
-    Switches are idempotent — redundant on/off calls are safely ignored.
-    Your saved schedule configuration is never modified.
+    The Night Owl switch is a user preference — flip it ON to allow
+    after-hours diffusing, OFF to disable it entirely. The automation
+    controls P5 on the device via a service call, not by toggling
+    the switch itself.
   domain: automation
   author: cjam28
   source_url: https://raw.githubusercontent.com/cjam28/homeassistant_aroma-link/master/custom_components/aroma_link_integration/blueprints/automation/aroma_link_full.yaml
@@ -44,13 +47,13 @@ blueprint:
           domain: binary_sensor
     schedule_active_switch:
       name: Schedule Active Switch
-      description: "The Aroma-Link 'Schedule Active' switch (switch.*_schedule_active). Controls P1-P4."
+      description: "The Aroma-Link 'Schedule Active' switch (switch.*_schedule_active). Controls P1-P4 on the device."
       selector:
         entity:
           domain: switch
     night_owl_switch:
-      name: Night Owl Switch
-      description: "The Aroma-Link 'Night Owl' switch (switch.*_night_owl). Controls P5."
+      name: Night Owl Preference Switch
+      description: "The Aroma-Link 'Night Owl' switch (switch.*_night_owl). User preference — ON means after-hours diffusing is allowed."
       selector:
         entity:
           domain: switch
@@ -103,6 +106,7 @@ actions:
       scheduled_on_sensor: !input scheduled_on_sensor
       occupancy_sensor: !input occupancy_sensor
       presence_sensors: !input presence_sensors
+      night_owl_switch: !input night_owl_switch
   - variables:
       hvac_running: >-
         {{ state_attr(hvac_entity, 'hvac_action') not in ['idle', none, 'off'] }}
@@ -112,9 +116,13 @@ actions:
         {{ is_state(occupancy_sensor, 'on') }}
       presence: >-
         {{ expand(presence_sensors) | selectattr('state', 'eq', 'on') | list | count > 0 }}
+      night_owl_enabled: >-
+        {{ is_state(night_owl_switch, 'on') }}
+      device_id: >-
+        {{ state_attr(night_owl_switch, 'device_id') }}
   - variables:
       want_schedule: "{{ hvac_running and scheduled and occupied }}"
-      want_night_owl: "{{ hvac_running and (not scheduled) and presence }}"
+      want_night_owl: "{{ hvac_running and (not scheduled) and presence and night_owl_enabled }}"
   - choose:
       - conditions:
           - condition: template
@@ -123,16 +131,18 @@ actions:
           - action: switch.turn_on
             target:
               entity_id: !input schedule_active_switch
-          - action: switch.turn_off
-            target:
-              entity_id: !input night_owl_switch
+          - action: aroma_link_integration.set_night_owl_active
+            data:
+              device_id: "{{ device_id }}"
+              enabled: false
       - conditions:
           - condition: template
             value_template: "{{ want_night_owl }}"
         sequence:
-          - action: switch.turn_on
-            target:
-              entity_id: !input night_owl_switch
+          - action: aroma_link_integration.set_night_owl_active
+            data:
+              device_id: "{{ device_id }}"
+              enabled: true
           - action: switch.turn_off
             target:
               entity_id: !input schedule_active_switch
@@ -140,6 +150,7 @@ actions:
       - action: switch.turn_off
         target:
           entity_id: !input schedule_active_switch
-      - action: switch.turn_off
-        target:
-          entity_id: !input night_owl_switch
+      - action: aroma_link_integration.set_night_owl_active
+        data:
+          device_id: "{{ device_id }}"
+          enabled: false

@@ -244,12 +244,14 @@ class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
 
 
 class AromaLinkNightOwlSwitch(CoordinatorEntity, SwitchEntity):
-    """Switch to silently enable/disable Program 5 (Night Owl) for today.
+    """User preference toggle for Night Owl (after-hours) mode.
 
-    Tracks its own on/off state independently from the schedule cache.
-    The cache always reflects the user's intended configuration (P5
-    disabled by default); this switch controls what's actually running
-    on the device. Ideal for presence-based after-hours automations.
+    ON  = user wants Night Owl automation active (P5 eligible to run)
+    OFF = user has disabled Night Owl (P5 will never be activated)
+
+    This switch does NOT make API calls. It stores the user's preference
+    which the automation blueprint checks as a condition. The blueprint
+    calls the set_night_owl_active service to control P5 on the device.
     """
 
     PROGRAM_NUM = 5
@@ -294,25 +296,21 @@ class AromaLinkNightOwlSwitch(CoordinatorEntity, SwitchEntity):
             "program": self.PROGRAM_NUM,
             "start_time": p5.get("start_time", "unknown"),
             "end_time": p5.get("end_time", "unknown"),
-            "device_active": self._is_active,
+            "device_id": str(self._device_id),
         }
 
     async def async_turn_on(self, **kwargs):
-        """Enable P5 on the device for today."""
+        """Enable Night Owl preference (no API call)."""
         if self._is_active:
             return
         self._is_active = True
-        day = self.coordinator._get_today_schedule_day()
-        await self.coordinator.set_program_enabled(day, self.PROGRAM_NUM, True)
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):
-        """Disable P5 on the device for today."""
+        """Disable Night Owl preference (no API call)."""
         if not self._is_active:
             return
         self._is_active = False
-        day = self.coordinator._get_today_schedule_day()
-        await self.coordinator.set_program_enabled(day, self.PROGRAM_NUM, False)
         self.async_write_ha_state()
 
 

@@ -2,8 +2,9 @@ blueprint:
   name: "Aroma-Link: Night Owl (After-Hours Presence)"
   description: >
     Enables the Night Owl program (P5) when room presence is detected outside
-    of scheduled hours and HVAC is running. Uses program toggle instead of
-    power toggle so the diffuser operates without beeping.
+    of scheduled hours, HVAC is running, and the user has Night Owl enabled.
+    The Night Owl switch is a user preference — the automation controls P5
+    on the device via a service call without toggling the switch.
   domain: automation
   author: cjam28
   source_url: https://raw.githubusercontent.com/cjam28/homeassistant_aroma-link/master/custom_components/aroma_link_integration/blueprints/automation/aroma_link_night_owl.yaml
@@ -30,8 +31,8 @@ blueprint:
         entity:
           domain: binary_sensor
     night_owl_switch:
-      name: Night Owl Switch
-      description: "The Aroma-Link 'Night Owl' switch (switch.*_night_owl)."
+      name: Night Owl Preference Switch
+      description: "The Aroma-Link 'Night Owl' switch (switch.*_night_owl). User preference — ON means after-hours diffusing is allowed."
       selector:
         entity:
           domain: switch
@@ -81,19 +82,25 @@ actions:
       hvac_entity: !input hvac_entity
       scheduled_on_sensor: !input scheduled_on_sensor
       presence_sensors: !input presence_sensors
+      night_owl_switch: !input night_owl_switch
   - variables:
       want_night_owl: >-
         {{ state_attr(hvac_entity, 'hvac_action') not in ['idle', none, 'off']
            and is_state(scheduled_on_sensor, 'off')
+           and is_state(night_owl_switch, 'on')
            and expand(presence_sensors) | selectattr('state', 'eq', 'on') | list | count > 0 }}
+      device_id: >-
+        {{ state_attr(night_owl_switch, 'device_id') }}
   - if:
       - condition: template
         value_template: "{{ want_night_owl }}"
     then:
-      - action: switch.turn_on
-        target:
-          entity_id: !input night_owl_switch
+      - action: aroma_link_integration.set_night_owl_active
+        data:
+          device_id: "{{ device_id }}"
+          enabled: true
     else:
-      - action: switch.turn_off
-        target:
-          entity_id: !input night_owl_switch
+      - action: aroma_link_integration.set_night_owl_active
+        data:
+          device_id: "{{ device_id }}"
+          enabled: false
