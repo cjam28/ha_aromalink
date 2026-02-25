@@ -173,12 +173,15 @@ class AromaLinkProgramEnabled(CoordinatorEntity, SwitchEntity):
 
 
 class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
-    """Switch to enable/disable all programs for today on the device.
+    """Switch to enable/disable P1-P4 for today on the device.
 
-    Provides a silent alternative to the power toggle — toggling schedule
-    programs makes the diffuser start or stop without the audible beep.
-    Ideal for use in automations.
+    Only controls the regular schedule programs (P1-P4). P5 (Night Owl)
+    is managed independently by AromaLinkNightOwlSwitch. Provides a
+    silent alternative to the power toggle — toggling schedule programs
+    makes the diffuser start or stop without the audible beep.
     """
+
+    SCHEDULE_PROGRAMS = 4  # P1-P4; P5 is Night Owl
 
     def __init__(self, coordinator, entry, device_id, device_name):
         super().__init__(coordinator)
@@ -198,12 +201,15 @@ class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def is_on(self):
-        """True if any program for today is enabled."""
+        """True if any of P1-P4 for today is enabled."""
         day = self.coordinator._get_today_schedule_day()
         programs = self.coordinator._schedule_cache.get(day)
         if not programs:
             return False
-        return any(p.get("enabled", 0) == 1 for p in programs)
+        return any(
+            p.get("enabled", 0) == 1
+            for p in programs[:self.SCHEDULE_PROGRAMS]
+        )
 
     @property
     def device_info(self):
@@ -219,7 +225,8 @@ class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
         day = self.coordinator._get_today_schedule_day()
         programs = self.coordinator._schedule_cache.get(day, [])
         enabled_nums = [
-            i + 1 for i, p in enumerate(programs) if p.get("enabled", 0) == 1
+            i + 1 for i, p in enumerate(programs[:self.SCHEDULE_PROGRAMS])
+            if p.get("enabled", 0) == 1
         ]
         return {
             "schedule_day": day,
@@ -227,12 +234,12 @@ class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
         }
 
     async def async_turn_on(self, **kwargs):
-        """Enable all programs for today and push to device."""
+        """Enable P1-P4 for today and push to device."""
         await self.coordinator.set_today_programs_enabled(True)
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):
-        """Disable all programs for today and push to device."""
+        """Disable P1-P4 for today and push to device."""
         await self.coordinator.set_today_programs_enabled(False)
         self.async_write_ha_state()
 

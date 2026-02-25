@@ -1,17 +1,21 @@
 blueprint:
   name: "Aroma-Link: Full Diffuser Control (Schedule + Night Owl)"
   description: >
-    All-in-one automation that handles both scheduled operation (tied to HVAC fan)
-    and after-hours Night Owl mode (tied to room presence sensors). During
-    scheduled hours the diffuser follows the HVAC fan. Outside scheduled hours
-    it activates the Night Owl program (P5) when presence is detected.
+    All-in-one automation that handles both scheduled operation (tied to HVAC
+    heating/cooling) and after-hours Night Owl mode (tied to room presence
+    sensors). During scheduled hours the diffuser follows the HVAC system.
+    Outside scheduled hours it activates the Night Owl program (P5) when
+    presence is detected. Triggers on hvac_action (idle → heating/cooling).
   domain: automation
   author: cjam28
   source_url: https://raw.githubusercontent.com/cjam28/homeassistant_aroma-link/master/custom_components/aroma_link_integration/blueprints/automation/aroma_link_full.yaml
   input:
     hvac_entity:
       name: HVAC / Thermostat
-      description: The climate entity whose fan state triggers the diffuser during scheduled hours.
+      description: >
+        The climate entity to monitor. Triggers when hvac_action changes
+        from idle to heating/cooling (and back). Works with ecobee, Nest,
+        and other standard climate entities.
       selector:
         entity:
           domain: climate
@@ -48,9 +52,9 @@ blueprint:
       selector:
         entity:
           domain: switch
-    fan_on_delay:
-      name: Fan On Delay
-      description: Minutes to wait after the HVAC fan turns on before enabling the diffuser.
+    hvac_on_delay:
+      name: HVAC On Delay
+      description: Minutes to wait after the HVAC starts running before enabling the diffuser.
       default: 1
       selector:
         number:
@@ -70,21 +74,19 @@ blueprint:
 mode: single
 
 triggers:
-  # --- Scheduled-hours triggers (HVAC fan) ---
+  # --- Scheduled-hours triggers (HVAC action) ---
   - trigger: state
     entity_id: !input hvac_entity
-    attribute: fan
-    from: "off"
-    to: "on"
+    attribute: hvac_action
+    from: "idle"
     for:
-      minutes: !input fan_on_delay
-    id: hvac_fan_on
+      minutes: !input hvac_on_delay
+    id: hvac_on
   - trigger: state
     entity_id: !input hvac_entity
-    attribute: fan
-    from: "on"
-    to: "off"
-    id: hvac_fan_off
+    attribute: hvac_action
+    to: "idle"
+    id: hvac_off
   # --- After-hours triggers (room presence) ---
   - trigger: state
     entity_id: !input presence_sensors
@@ -99,10 +101,10 @@ triggers:
 
 actions:
   - choose:
-      # HVAC fan ON during schedule → enable schedule
+      # HVAC starts running during schedule → enable schedule
       - conditions:
           - condition: trigger
-            id: hvac_fan_on
+            id: hvac_on
           - condition: state
             entity_id: !input occupancy_sensor
             state: "on"
@@ -114,10 +116,10 @@ actions:
             target:
               entity_id: !input schedule_active_switch
 
-      # HVAC fan OFF during schedule → disable schedule
+      # HVAC goes idle during schedule → disable schedule
       - conditions:
           - condition: trigger
-            id: hvac_fan_off
+            id: hvac_off
           - condition: state
             entity_id: !input occupancy_sensor
             state: "on"

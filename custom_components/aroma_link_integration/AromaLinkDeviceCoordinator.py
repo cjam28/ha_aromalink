@@ -1158,19 +1158,24 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         return (now.weekday() + 1) % 7
 
     async def set_today_programs_enabled(self, enabled):
-        """Enable or disable programs for today and push to API.
+        """Enable or disable P1-P4 for today and push to API.
 
-        When disabling: saves a snapshot of which programs were enabled,
-        then disables all programs.
-        When enabling: restores programs from the saved snapshot so only
+        Only touches programs 1-4 (indices 0-3). P5 (Night Owl) is left
+        untouched so the Schedule Active and Night Owl switches don't
+        interfere with each other.
+
+        When disabling: saves a snapshot of P1-P4 enabled states,
+        then disables P1-P4.
+        When enabling: restores P1-P4 from the saved snapshot so only
         the programs that were previously on get re-enabled.
 
         Args:
-            enabled: True to restore/enable, False to disable all.
+            enabled: True to restore/enable P1-P4, False to disable P1-P4.
 
         Returns:
             True if the API call succeeded.
         """
+        SCHEDULE_PROGRAMS = 4  # P1-P4; P5 is Night Owl
         day = self._get_today_schedule_day()
 
         if day not in self._schedule_cache:
@@ -1184,27 +1189,27 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
 
         if not enabled:
             self._saved_enabled_state[day] = [
-                p.get("enabled", 0) == 1 for p in programs
+                p.get("enabled", 0) == 1 for p in programs[:SCHEDULE_PROGRAMS]
             ]
             self._request_oil_state_save()
-            for prog in api_programs:
+            for prog in api_programs[:SCHEDULE_PROGRAMS]:
                 prog["enabled"] = 0
         else:
             snapshot = self._saved_enabled_state.get(day)
-            if snapshot and len(snapshot) == len(api_programs):
+            if snapshot and len(snapshot) == SCHEDULE_PROGRAMS:
                 for i, was_on in enumerate(snapshot):
                     api_programs[i]["enabled"] = 1 if was_on else 0
             else:
                 _LOGGER.info(
-                    "No saved snapshot for day %s — re-enabling programs "
+                    "No saved snapshot for day %s — re-enabling P1-P4 programs "
                     "that have non-default time windows", day)
-                for i, prog in enumerate(api_programs):
+                for i in range(SCHEDULE_PROGRAMS):
                     has_custom_window = (
                         programs[i].get("start_time", "00:00") != "00:00"
                         or programs[i].get("end_time", "23:59") != "23:59"
                     )
-                    prog["enabled"] = 1 if has_custom_window else 0
-                if not any(p["enabled"] for p in api_programs):
+                    api_programs[i]["enabled"] = 1 if has_custom_window else 0
+                if not any(api_programs[i]["enabled"] for i in range(SCHEDULE_PROGRAMS)):
                     api_programs[0]["enabled"] = 1
 
         result = await self.set_workset([day], api_programs)

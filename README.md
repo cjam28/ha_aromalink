@@ -1,90 +1,67 @@
-# Aroma-Link Integration for Home Assistant (SSL Bypass Fork)
+# Aroma-Link Integration for Home Assistant
 
-This custom component provides integration with Aroma-Link WiFi diffusers in Home Assistant.
-
-> **⚠️ IMPORTANT: SSL Verification Disabled**  
-> This fork disables SSL certificate verification to work around Aroma-Link's expired SSL certificates. While HTTPS encryption is still used, certificate validation is bypassed. This means the connection is encrypted but not authenticated, which could make you vulnerable to man-in-the-middle attacks. Use at your own risk.
-
-> **Note:** The integration appears in Home Assistant as "Aroma-Link Integration" with the domain `aroma_link_integration`
+A full-featured Home Assistant custom integration for **Aroma-Link WiFi diffusers**. Control power, fan, schedules, timed runs, oil tracking, and advanced automations — all from your Home Assistant dashboard or the companion app.
 
 ## Features
 
-- Control diffuser power state (on/off)
-- Set diffuser work duration
-- Set diffuser schedules
-- **Full workset scheduling** - Up to 5 time programs per day with customizable start/end times, work/pause durations, and consistency levels
-- Multi-day schedule support
-- Run diffuser for specific durations
-- Automatic device discovery
-- Auto-detection of devices in your Aroma-Link account
-- Configurable polling interval (1–30 minutes)
-- Optional debug logging toggle
-- Diagnostics API tester service
+- **Power & Fan Control** — Toggle the diffuser and fan on/off
+- **5-Program Scheduling** — Up to 5 time-based programs per day (P1–P5), each with start/end time, work/pause durations, and consistency level (A/B/C)
+- **Interactive Lovelace Card** — Auto-registered custom card with a 7-day x 5-program schedule matrix, multi-cell editing, and responsive design
+- **Timed Runs** — Start the diffuser for a set number of hours with automatic shutoff (server-side timer)
+- **Batch Schedule Sync** — Optimized save that batches identical days into single API calls
+- **Oil Calibration & Tracking** — Track oil consumption rate (ml/hr), fill level, and runtime with manual override support
+- **Schedule-Aware Binary Sensor** — `binary_sensor.<name>_scheduled_on` indicates whether the current time falls within a scheduled program
+- **Silent Program Control** — Enable/disable schedule programs without the audible beep (uses program toggle instead of power toggle)
+- **Night Owl Mode (P5)** — Dedicated after-hours program with a standalone switch for automation
+- **Automation Blueprints** — Pre-built, auto-installed blueprints for HVAC-linked scheduling and presence-based Night Owl control
+- **SSL Fallback** — Option to bypass SSL verification with automatic fallback if certificates expire
+- **Multi-Device Support** — Auto-discovers all devices on your Aroma-Link account
+- **Responsive Design** — Card scales cleanly across desktop, tablet, and mobile (including iOS companion app)
+- **Configurable Polling** — 1–30 minute polling interval with optional debug logging
+- **Diagnostics API** — Call any Aroma-Link API endpoint for discovery and troubleshooting
 
 ## Installation
 
-### HACS
+### HACS (Recommended)
 
-1. Ensure HACS is installed in Home Assistant.
+1. Open HACS in Home Assistant
+2. Click the three-dot menu (top right) and select **Custom repositories**
+3. Paste: `https://github.com/cjam28/homeassistant_aroma-link`
+4. Select **Integration** as the type, then click **Add**
+5. Find "Aroma-Link Integration" in HACS and click **Download**
+6. Restart Home Assistant
 
-2. Open the HACS tab.
+### Manual
 
-3. Click the **three dots** in the top right.
+1. Copy the `aroma_link_integration` folder into your `custom_components` directory:
 
-4. Click **Custom repositories**
-
-5. Paste the github repository url `https://github.com/cjam28/ha_aromalink`
-
-6. Select **integration** as the type then click **ADD**
-
-7. Click on the freshly added repository in HACS.
-
-8. Click **Download**
-
-9. Restart Home Assistant
-
-### Manual Installation
-
-1. Copy the `aroma_link_integration` directory to your Home Assistant `custom_components` directory
-
-   - The directory is typically located at `<config>/custom_components/`
-   - If the `custom_components` directory doesn't exist, create it
-
-   For example:
-
-   ```bash
-   cp -r aroma_link_integration <home_assistant_config>/custom_components/
-   ```
+```bash
+cp -r aroma_link_integration /config/custom_components/
+```
 
 2. Restart Home Assistant
 
-### Configuration
+## Configuration
 
-1. In Home Assistant, go to **Settings** → **Devices and Services**
-2. Click the **+ ADD INTEGRATION** button
-3. Search for "Aroma-Link Integration" and select it
-4. Enter your Aroma-Link username and password
-5. The integration will automatically discover and add all devices in your account
+1. Go to **Settings > Devices & Services**
+2. Click **+ Add Integration** and search for **Aroma-Link Integration**
+3. Enter your Aroma-Link username and password
+4. (Optional) Enable **Allow SSL Fallback** — this lets the integration continue operating if Aroma-Link's SSL certificates expire. A disclaimer is shown; HTTPS encryption is still used, but certificate validation is bypassed.
+5. The integration automatically discovers and adds all devices in your account
 
-### Options
+### Options (Post-Setup)
 
-After setup, open the integration options to configure:
+Go to the integration's options page to configure:
 
-- Polling interval (1–30 minutes)
-- Debug logging toggle
+- **Polling interval** (1–30 minutes)
+- **Debug logging** toggle
+- **SSL fallback** toggle
 
-## Custom Schedule Card (Auto-Registered)
+## Custom Schedule Card
 
-The integration includes a custom Lovelace card that displays an interactive 7-day × 5-program schedule matrix. **No manual installation required!**
+The integration includes a custom Lovelace card that is **automatically registered** — no manual frontend installation required.
 
-### Automatic Registration
-
-When you install the integration:
-1. The custom card JavaScript file is automatically served
-2. The card resource is registered with Lovelace
-3. Just add the card to your dashboard - no HACS frontend install needed
-
-### Using the Card
+### Adding the Card
 
 Add this to any dashboard:
 
@@ -92,884 +69,251 @@ Add this to any dashboard:
 type: custom:aroma-link-schedule-card
 ```
 
-That's it! The card will:
-- **Auto-discover** all your Aroma-Link devices
-- Display a **7×5 schedule matrix** for each device
-- **Multi-cell selection** - click cells to select, click P# row header to select all 7 days
-- **Bulk editing** - changes apply to all selected cells at once
-- **Overlap validation** - warns if schedules would conflict on the same day
-- **Green cells** = enabled programs with times displayed
-- **Blue highlight** = selected cells ready for editing
-
-### How to Use
-
-1. **Select cells**: Click individual cells, or click P1-P5 row headers to select entire row
-2. **Edit values**: Change enabled, start/end times, work/pause, level in the editor below
-3. **Save**: Click "Save to Aroma-Link" to push changes to all selected cells
-4. **Pull**: Click "Pull Current Schedule" to refresh from Aroma-Link app
-
-### Overlap Warning
-
-The card validates schedules before saving. If you try to enable a program that overlaps with another enabled program on the same day, you'll see a warning. Aroma-Link may have issues with overlapping time ranges.
-
-### Optional Configuration
+Optionally filter to a specific device:
 
 ```yaml
 type: custom:aroma-link-schedule-card
-device: main_house    # Filter to specific device (optional)
+device: my_device_name
 ```
+
+### Card Features
+
+- **7 x 5 schedule matrix** — days of the week vs. programs P1–P5
+- **Multi-cell selection** — click cells individually, or click a P# row header to select the entire row
+- **Bulk editing** — changes apply to all selected cells at once
+- **Overlap validation** — warns before saving conflicting time ranges on the same day
+- **Batch sync** — optimized save groups identical schedules into single API calls
+- **Pull / Sync buttons** — refresh from or push to the Aroma-Link cloud
+- **Power, Fan, Timed Run controls** — integrated directly in the card header
+- **Oil Calibration & Tracking panel** — expandable section for fill level, consumption rate, and manual overrides
+- **Night Owl label** — P5 is labeled "Night Owl" in the matrix for clarity
+- **Responsive layout** — fluid typography and container queries scale from mobile to desktop
+- **Dark mode support** — adapts to Home Assistant's theme
 
 ### Manual Resource Registration (if needed)
 
-If the auto-registration doesn't work, manually add the resource:
+If auto-registration fails, add the resource manually:
 
-1. Go to **Settings** → **Dashboards** → **Resources** (⋮ menu)
+1. Go to **Settings > Dashboards > Resources** (three-dot menu)
 2. Click **Add Resource**
 3. URL: `/aroma_link_integration/aroma-link-schedule-card.js`
 4. Type: **JavaScript Module**
 
-## Services
+## Automation Blueprints
 
-The integration provides the following services:
+Three automation blueprints are **automatically installed** when the integration loads. Find them under **Settings > Automations & Scenes > Blueprints**.
 
-### `aroma_link_integration.set_scheduler`
+### 1. Scheduled Diffuser with HVAC
 
-Set the scheduler for the diffuser.
+**Blueprint:** `Aroma-Link: Scheduled Diffuser with HVAC`
 
-Parameters:
+Links your diffuser to your HVAC system. When the thermostat starts heating or cooling (hvac_action leaves `idle`) during scheduled hours and someone is home, the diffuser schedule is silently enabled. When the HVAC goes idle, the schedule is disabled. Works with ecobee, Nest, and other standard climate entities.
 
-- `work_duration`: Duration in seconds for the diffuser to work (required)
-- `week_days`: Days of the week to apply the schedule (optional, defaults to all days)
-- `device_id`: The ID of the device to control (optional, required if you have multiple devices)
+**Inputs:**
+- HVAC / thermostat entity
+- Home occupancy sensor
+- Aroma-Link "Scheduled On" binary sensor
+- Aroma-Link "Schedule Active" switch
+- HVAC on delay (minutes)
 
-### `aroma_link_integration.run_diffuser`
+### 2. Night Owl (After-Hours Presence)
 
-Run the diffuser for a specific time.
+**Blueprint:** `Aroma-Link: Night Owl (After-Hours Presence)`
 
-Parameters:
+Activates the Night Owl program (P5) when room presence sensors detect someone is up *outside* of scheduled hours. Uses silent program toggle — no beep.
 
-- `work_duration`: Work duration in seconds for the diffuser (required)
-- `diffuse_time`: Total time in seconds for the diffuser to run (required)
-- `device_id`: The ID of the device to control (optional, required if you have multiple devices)
+**Inputs:**
+- Room presence sensors (one or more)
+- Aroma-Link "Scheduled On" binary sensor
+- Aroma-Link "Night Owl" switch
+- Turn-off delay (minutes)
 
-### `aroma_link_integration.load_workset`
+### 3. Full Diffuser Control (Schedule + Night Owl)
 
-Load workset schedule from device into helper entities. This allows you to view and edit the current schedule configuration.
+**Blueprint:** `Aroma-Link: Full Diffuser Control (Schedule + Night Owl)`
 
-Parameters:
+All-in-one automation combining both of the above. During scheduled hours, it follows the HVAC fan. Outside scheduled hours, it responds to room presence.
 
-- `device_id`: The ID of the device (optional, required if you have multiple devices)
-- `week_day`: Day of week to load (0=Monday, 1=Tuesday, ..., 6=Sunday). Defaults to 0.
-- `helper_prefix`: Prefix for helper entity IDs (e.g., "aromalink_poolhouse"). If not provided, uses device name.
+**Inputs:** All of the above combined.
 
-### `aroma_link_integration.save_workset`
+### Setting Up Night Owl (P5)
 
-Save workset schedule from helper entities to device. This applies your configured schedule to the device.
-
-Parameters:
-
-- `device_id`: The ID of the device (optional, required if you have multiple devices)
-- `week_days`: List of weekdays to apply schedule to (0=Monday, 1=Tuesday, ..., 6=Sunday). Required.
-- `helper_prefix`: Prefix for helper entity IDs (e.g., "aromalink_poolhouse"). If not provided, uses device name.
-
-### `aroma_link_integration.api_diagnostics`
-
-Call a specific Aroma-Link API endpoint for discovery/diagnostics and optionally emit an event with the response.
-
-Parameters:
-
-- `path`: API path (e.g., `/device/deviceInfo/now/{device_id}`) (required)
-- `method`: `GET` or `POST` (optional, defaults to `GET`)
-- `device_id`: Device ID (optional, required if you have multiple devices)
-- `params`: Query parameters (optional)
-- `data`: Form body for POST (optional)
-- `json`: JSON body for POST (optional)
-- `log_response`: Log response in Home Assistant logs (optional, defaults to `true`)
-- `fire_event`: Emit event `aroma_link_integration_api_diagnostics` with response payload (optional, defaults to `true`)
-
-### `aroma_link_integration.set_editor_program`
-
-Set the schedule editor to a specific day and program. Used by dashboard cards to populate editor entities when clicking on a schedule cell.
-
-Parameters:
-
-- `device_id`: Device ID (optional, required if you have multiple devices)
-- `day`: Day of week (0=Monday, 1=Tuesday, ..., 6=Sunday). Defaults to 0.
-- `program`: Program number (1-5). Defaults to 1.
-
-### `aroma_link_integration.refresh_all_schedules`
-
-Refresh schedules for all 7 days from the API. Used to populate the full schedule matrix.
-
-Parameters:
-
-- `device_id`: Device ID (optional, required if you have multiple devices)
+1. Open the schedule card on your dashboard
+2. Select all 7 day cells for P5 (or click the "Night Owl" row header)
+3. Set your desired time window (e.g., `20:00` to `06:00` for evenings/nights)
+4. Set work/pause durations and level as desired
+5. **Leave Enabled = OFF** — the automation will toggle it on/off based on presence
+6. Sync to the device
 
 ## Entities
 
-The integration adds the following entities for each device:
+The integration creates the following entities per device (entity IDs use your device name slug, shown here as `<name>`):
 
-- **Switches**:
-  - Power: Control the power state of the diffuser (on/off)
-  - Fan: Control the fan state (on/off)
-- **Button**: Send immediate commands to the diffuser (Run and Save Settings buttons)
-- **Number**: Set work duration and pause duration values
-- **Sensors**:
-  - Work Status (Off/Diffusing/Paused)
-  - Work Remaining Time (seconds)
-  - Pause Remaining Time (seconds)
-  - On Count (total activations)
-  - Pump Count (total diffusions)
-  - Signal Strength (if provided by the API)
-  - Firmware Version (if provided by the API)
-  - Last Update (timestamp, if provided by the API)
-- **Schedule Entities** (per-program editor):
-  - Program Day: Select which day's schedule you are viewing/editing
-  - Program Selector: Choose which program (1-5) to edit
-  - Program Enabled: Enable/disable the selected program
-  - Program Start Time: Start time for the program
-  - Program End Time: End time for the program
-  - Program Work Duration: Work duration in seconds (5-900)
-  - Program Pause Duration: Pause duration in seconds (5-900)
-  - Program Level: Consistency level (A/B/C)
-  - Program Day Switches: 7 switches (one per day) to select which days to apply the program
-  - Save Program: Button to save the edited program to selected days
+### Switches
 
-## Dashboard Cards (Mushroom)
+| Entity | Description |
+|---|---|
+| `switch.<name>_power` | Diffuser power on/off |
+| `switch.<name>_fan` | Fan on/off |
+| `switch.<name>_program_enabled` | Enable/disable the currently selected editor program |
+| `switch.<name>_schedule_active` | Enable/disable all scheduled programs for today (silent, no beep) |
+| `switch.<name>_night_owl` | Enable/disable P5 Night Owl program for today (silent, no beep) |
+| `switch.<name>_program_<day>` | Day-of-week toggles for the schedule editor (Monday–Sunday) |
 
-### Basic Controls Card
+### Binary Sensors
 
-This card groups the most important controls. Replace `device_name` in entity IDs with your actual device name slug (e.g., `pool_house`).
+| Entity | Description |
+|---|---|
+| `binary_sensor.<name>_scheduled_on` | `on` if the current time is within any enabled program's window |
 
-```yaml
-type: vertical-stack
-cards:
-  - type: custom:mushroom-title-card
-    title: Aroma-Link Device
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-entity-card
-        entity: switch.device_name_power
-        name: Power
-        icon_color: green
-      - type: custom:mushroom-entity-card
-        entity: switch.device_name_fan
-        name: Fan
-        icon_color: blue
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-number-card
-        entity: number.device_name_work_duration
-        name: Work (sec)
-      - type: custom:mushroom-number-card
-        entity: number.device_name_pause_duration
-        name: Pause (sec)
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-entity-card
-        entity: button.device_name_run
-        name: Run
-        tap_action:
-          action: call-service
-          service: button.press
-          target:
-            entity_id: button.device_name_run
-      - type: custom:mushroom-entity-card
-        entity: button.device_name_save_settings
-        name: Save Settings
-```
+Extra attributes: `active_programs`, `active_program_count`, `current_window_start`, `current_window_end`, `work_sec`, `pause_sec`, `level`
 
-### Schedule Editor Card
+### Sensors
 
-This card provides a complete schedule editor interface with program selection, editing fields, and day selection.
+| Entity | Description |
+|---|---|
+| `sensor.<name>_work_status` | Current status: Off / Diffusing / Paused |
+| `sensor.<name>_work_remaining` | Seconds remaining in current work cycle |
+| `sensor.<name>_pause_remaining` | Seconds remaining in current pause cycle |
+| `sensor.<name>_on_count` | Total activation count |
+| `sensor.<name>_pump_count` | Total diffusion count |
+| `sensor.<name>_signal_strength` | WiFi signal strength (if available) |
+| `sensor.<name>_firmware_version` | Firmware version (if available) |
+| `sensor.<name>_last_update` | Last API update timestamp (if available) |
+| `sensor.<name>_oil_consumption_rate` | Calculated oil consumption rate (ml/hr) |
 
-```yaml
-type: vertical-stack
-cards:
-  - type: custom:mushroom-title-card
-    title: Schedule Editor
-    subtitle: Select day and program to edit
-  # Day and Program Selectors
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-select-card
-        entity: select.device_name_program_day
-        name: Day
-      - type: custom:mushroom-select-card
-        entity: select.device_name_program
-        name: Program
-  # Program Settings
-  - type: custom:mushroom-entity-card
-    entity: switch.device_name_program_enabled
-    name: Program Enabled
-    icon_color: green
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-entity-card
-        entity: text.device_name_program_start_time
-        name: Start
-      - type: custom:mushroom-entity-card
-        entity: text.device_name_program_end_time
-        name: End
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-number-card
-        entity: number.device_name_program_work_time
-        name: Work (sec)
-      - type: custom:mushroom-number-card
-        entity: number.device_name_program_pause_time
-        name: Pause (sec)
-  - type: custom:mushroom-select-card
-    entity: select.device_name_program_level
-    name: Level
-  # Day Selection (for saving)
-  - type: custom:mushroom-title-card
-    subtitle: Apply to these days
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-entity-card
-        entity: switch.device_name_program_monday
-        name: M
-        layout: vertical
-      - type: custom:mushroom-entity-card
-        entity: switch.device_name_program_tuesday
-        name: T
-        layout: vertical
-      - type: custom:mushroom-entity-card
-        entity: switch.device_name_program_wednesday
-        name: W
-        layout: vertical
-      - type: custom:mushroom-entity-card
-        entity: switch.device_name_program_thursday
-        name: T
-        layout: vertical
-      - type: custom:mushroom-entity-card
-        entity: switch.device_name_program_friday
-        name: F
-        layout: vertical
-      - type: custom:mushroom-entity-card
-        entity: switch.device_name_program_saturday
-        name: S
-        layout: vertical
-      - type: custom:mushroom-entity-card
-        entity: switch.device_name_program_sunday
-        name: S
-        layout: vertical
-  # Save Button
-  - type: custom:mushroom-entity-card
-    entity: button.device_name_save_program
-    name: Save Program
-    icon_color: amber
-```
+### Numbers
 
-### Schedule Matrix View (Interactive)
+| Entity | Description |
+|---|---|
+| `number.<name>_work_duration` | Default work duration (seconds) |
+| `number.<name>_pause_duration` | Default pause duration (seconds) |
+| `number.<name>_program_work_time` | Editor: program work duration (5–900s) |
+| `number.<name>_program_pause_time` | Editor: program pause duration (5–900s) |
+| `number.<name>_manual_start_volume` | Oil calibration: start volume (ml) |
+| `number.<name>_manual_end_volume` | Oil calibration: end volume (ml) |
+| `number.<name>_manual_runtime_hours` | Oil calibration: total runtime (hours) |
+| `number.<name>_manual_rate_ml_per_hour` | Oil calibration: manual consumption rate override (ml/hr) |
 
-This card creates a visual matrix showing all 7 days × 5 programs. Click any cell to load that day/program into the editor.
+### Buttons
 
-```yaml
-type: vertical-stack
-cards:
-  - type: custom:mushroom-title-card
-    title: Schedule Matrix
-    subtitle: Click a cell to edit that day/program
-  # Row 1: Monday
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-template-card
-        primary: Mon
-        layout: vertical
-        icon: mdi:calendar-today
-        icon_color: grey
-      - type: custom:mushroom-template-card
-        primary: "P1"
-        icon: mdi:numeric-1-circle
-        icon_color: green
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 0
-            program: 1
-      - type: custom:mushroom-template-card
-        primary: "P2"
-        icon: mdi:numeric-2-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 0
-            program: 2
-      - type: custom:mushroom-template-card
-        primary: "P3"
-        icon: mdi:numeric-3-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 0
-            program: 3
-      - type: custom:mushroom-template-card
-        primary: "P4"
-        icon: mdi:numeric-4-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 0
-            program: 4
-      - type: custom:mushroom-template-card
-        primary: "P5"
-        icon: mdi:numeric-5-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 0
-            program: 5
-  # Row 2: Tuesday
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-template-card
-        primary: Tue
-        layout: vertical
-        icon: mdi:calendar-today
-        icon_color: grey
-      - type: custom:mushroom-template-card
-        primary: "P1"
-        icon: mdi:numeric-1-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 1
-            program: 1
-      - type: custom:mushroom-template-card
-        primary: "P2"
-        icon: mdi:numeric-2-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 1
-            program: 2
-      - type: custom:mushroom-template-card
-        primary: "P3"
-        icon: mdi:numeric-3-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 1
-            program: 3
-      - type: custom:mushroom-template-card
-        primary: "P4"
-        icon: mdi:numeric-4-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 1
-            program: 4
-      - type: custom:mushroom-template-card
-        primary: "P5"
-        icon: mdi:numeric-5-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 1
-            program: 5
-  # Row 3: Wednesday
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-template-card
-        primary: Wed
-        layout: vertical
-        icon: mdi:calendar-today
-        icon_color: grey
-      - type: custom:mushroom-template-card
-        primary: "P1"
-        icon: mdi:numeric-1-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 2
-            program: 1
-      - type: custom:mushroom-template-card
-        primary: "P2"
-        icon: mdi:numeric-2-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 2
-            program: 2
-      - type: custom:mushroom-template-card
-        primary: "P3"
-        icon: mdi:numeric-3-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 2
-            program: 3
-      - type: custom:mushroom-template-card
-        primary: "P4"
-        icon: mdi:numeric-4-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 2
-            program: 4
-      - type: custom:mushroom-template-card
-        primary: "P5"
-        icon: mdi:numeric-5-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 2
-            program: 5
-  # Row 4: Thursday
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-template-card
-        primary: Thu
-        layout: vertical
-        icon: mdi:calendar-today
-        icon_color: grey
-      - type: custom:mushroom-template-card
-        primary: "P1"
-        icon: mdi:numeric-1-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 3
-            program: 1
-      - type: custom:mushroom-template-card
-        primary: "P2"
-        icon: mdi:numeric-2-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 3
-            program: 2
-      - type: custom:mushroom-template-card
-        primary: "P3"
-        icon: mdi:numeric-3-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 3
-            program: 3
-      - type: custom:mushroom-template-card
-        primary: "P4"
-        icon: mdi:numeric-4-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 3
-            program: 4
-      - type: custom:mushroom-template-card
-        primary: "P5"
-        icon: mdi:numeric-5-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 3
-            program: 5
-  # Row 5: Friday
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-template-card
-        primary: Fri
-        layout: vertical
-        icon: mdi:calendar-today
-        icon_color: grey
-      - type: custom:mushroom-template-card
-        primary: "P1"
-        icon: mdi:numeric-1-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 4
-            program: 1
-      - type: custom:mushroom-template-card
-        primary: "P2"
-        icon: mdi:numeric-2-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 4
-            program: 2
-      - type: custom:mushroom-template-card
-        primary: "P3"
-        icon: mdi:numeric-3-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 4
-            program: 3
-      - type: custom:mushroom-template-card
-        primary: "P4"
-        icon: mdi:numeric-4-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 4
-            program: 4
-      - type: custom:mushroom-template-card
-        primary: "P5"
-        icon: mdi:numeric-5-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 4
-            program: 5
-  # Row 6: Saturday
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-template-card
-        primary: Sat
-        layout: vertical
-        icon: mdi:calendar-today
-        icon_color: grey
-      - type: custom:mushroom-template-card
-        primary: "P1"
-        icon: mdi:numeric-1-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 5
-            program: 1
-      - type: custom:mushroom-template-card
-        primary: "P2"
-        icon: mdi:numeric-2-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 5
-            program: 2
-      - type: custom:mushroom-template-card
-        primary: "P3"
-        icon: mdi:numeric-3-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 5
-            program: 3
-      - type: custom:mushroom-template-card
-        primary: "P4"
-        icon: mdi:numeric-4-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 5
-            program: 4
-      - type: custom:mushroom-template-card
-        primary: "P5"
-        icon: mdi:numeric-5-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 5
-            program: 5
-  # Row 7: Sunday
-  - type: horizontal-stack
-    cards:
-      - type: custom:mushroom-template-card
-        primary: Sun
-        layout: vertical
-        icon: mdi:calendar-today
-        icon_color: grey
-      - type: custom:mushroom-template-card
-        primary: "P1"
-        icon: mdi:numeric-1-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 6
-            program: 1
-      - type: custom:mushroom-template-card
-        primary: "P2"
-        icon: mdi:numeric-2-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 6
-            program: 2
-      - type: custom:mushroom-template-card
-        primary: "P3"
-        icon: mdi:numeric-3-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 6
-            program: 3
-      - type: custom:mushroom-template-card
-        primary: "P4"
-        icon: mdi:numeric-4-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 6
-            program: 4
-      - type: custom:mushroom-template-card
-        primary: "P5"
-        icon: mdi:numeric-5-circle
-        icon_color: grey
-        tap_action:
-          action: call-service
-          service: aroma_link_integration.set_editor_program
-          data:
-            day: 6
-            program: 5
-```
+| Entity | Description |
+|---|---|
+| `button.<name>_run` | Start the diffuser with current work/pause settings |
+| `button.<name>_save_settings` | Save current work/pause settings to the device |
+| `button.<name>_save_program` | Save the schedule editor program to selected days |
+| `button.<name>_apply_manual_calibration` | Apply manual oil calibration override |
 
-**How to use the Schedule Matrix:**
-1. All schedule data is automatically loaded on startup
-2. Click any cell (day/program combination) to load that schedule into the editor
-3. The editor entities will update to show the current values for that day/program
-4. Edit the values (enabled, times, work/pause, level)
-5. Toggle the day switches to select which days to apply your changes to
-6. Click "Save Program" to save your changes to the selected days
+### Selects
 
-### Diagnostics Card
+| Entity | Description |
+|---|---|
+| `select.<name>_program_day` | Schedule editor: select day of week |
+| `select.<name>_program` | Schedule editor: select program number (1–5) |
+| `select.<name>_program_level` | Schedule editor: consistency level (A/B/C) |
 
-```yaml
-type: custom:mushroom-template-card
-primary: API Diagnostics (Device Info)
-secondary: Tap to call /device/deviceInfo/now for this device
-icon: mdi:bug-outline
-tap_action:
-  action: call-service
-  service: aroma_link_integration.api_diagnostics
-  data:
-    device_id: "419933"
-    path: "/device/deviceInfo/now/{device_id}"
-    params:
-      timeout: 1000
-```
+### Text
 
-## Workset Scheduling
+| Entity | Description |
+|---|---|
+| `text.<name>_program_start_time` | Schedule editor: program start time (HH:MM) |
+| `text.<name>_program_end_time` | Schedule editor: program end time (HH:MM) |
+| `text.<name>_oil_fill_date` | Oil calibration: date oil was last filled (YYYY-MM-DD) |
 
-The integration supports full workset scheduling with up to 5 time programs per day, similar to the Aroma-Link mobile app. Each program can have:
-- Start and end times
-- Work duration (seconds the diffuser runs)
-- Pause duration (seconds between work cycles)
-- Consistency level (A, B, or C)
-- Enable/disable toggle
+## Services
 
-### Using Schedule Entities
+### `aroma_link_integration.run_diffuser`
+Run the diffuser for a specific time with custom work/pause durations.
 
-**✨ Native Entities:** The integration automatically creates native Home Assistant entities for schedule editing. No manual setup required!
+### `aroma_link_integration.set_scheduler`
+Set the weekly scheduler with work/pause durations.
 
-All schedule entities appear on your device page automatically. To edit a schedule:
+### `aroma_link_integration.start_timed_run`
+Start a timed run (0.1–24 hours) with automatic shutoff. The timer runs server-side and survives browser close.
 
-1. **Select a Day**: Use the "Program Day" selector to choose which day’s schedule you want to view/edit
-2. **Select a Program**: Use the "Program" selector to choose which program (1-5) you want to edit
-3. **Edit Program Settings**: Adjust the enabled state, start/end times, work/pause durations, and consistency level
-4. **Select Days**: Toggle the day switches (Monday-Sunday) to choose which days this program should apply to
-5. **Save**: Press the "Save Program" button to apply your changes
+### `aroma_link_integration.cancel_timed_run`
+Cancel an active timed run (does not turn off the device).
 
-The integration automatically:
-- Loads schedules on-demand when you view the device page
-- Merges your edited program into the full 5-program set for each selected day
-- Saves all changes to the device via the Aroma-Link API
+### `aroma_link_integration.get_timed_run_status`
+Get status of active timed runs (fires an event).
 
-**Note:** Schedules are cached locally and only refreshed when needed. Changes made outside Home Assistant (via the app) will be reflected when you refresh the schedule or view the device page.
+### `aroma_link_integration.save_schedule_batch`
+Fast batch save — sends schedule data directly to the device, batching days with identical schedules into single API calls.
 
-### Legacy Services (Backward Compatibility)
+### `aroma_link_integration.refresh_all_schedules`
+Refresh schedules for all 7 days from the API.
 
-The `load_workset` and `save_workset` services are still available for backward compatibility, but the native entities provide a better user experience. These services work with helper entities if you prefer that approach.
+### `aroma_link_integration.set_editor_program`
+Load a specific day/program into the schedule editor entities.
 
-## How It Works
+### `aroma_link_integration.load_workset` / `save_workset`
+Legacy helper-based schedule load/save (backward compatible).
 
-The integration works by:
+### `aroma_link_integration.reset_oil_runtime`
+Reset the cumulative oil runtime counter (call when refilling oil).
 
-1. Connecting to the Aroma-Link account using your credentials
-2. Automatically discovering all devices in your account
-3. Setting up all devices as separate entities in Home Assistant
-4. Maintaining a shared authentication session for all devices
+### `aroma_link_integration.api_diagnostics`
+Call any Aroma-Link API endpoint for discovery/diagnostics. Optionally fires an event with the response.
 
-### Auto-Discovery Feature
+## Oil Calibration & Tracking
 
-The new auto-discovery feature eliminates the need to manually find your device ID. When setting up:
+The integration tracks oil usage and calculates consumption rates:
 
-1. The integration authenticates with the Aroma-Link server
-2. It requests a list of all devices registered to your account
-3. All devices are automatically added to Home Assistant
-4. Each device gets its own set of entities (switch, button, number controls)
+1. **Automatic tracking** — When a fill date is set and the diffuser operates, the integration accumulates runtime and estimates consumption.
+2. **Manual override** — Set start volume, end volume, and runtime hours to calculate a consumption rate, or directly enter the rate in ml/hr.
+3. **Data persistence** — Calibration data is saved to Home Assistant storage and survives restarts.
 
-### Technical Details
+### Quick Start
 
-- The integration uses the same API as the official Aroma-Link website
-- All communication is done over HTTPS (encrypted but SSL certificate verification is disabled)
-- **SSL Verification Bypass**: This fork sets `VERIFY_SSL = False` to bypass certificate validation, allowing the integration to work even when Aroma-Link's SSL certificates are expired or invalid
-- Session management is handled with cookies and automatic re-login when needed
-- **Important**: The integration polls device state (power, fan, sensors) every 1 minute by default. You can change this in the integration options (1–30 minutes). Schedule data is loaded on-demand when viewing the device page or when explicitly refreshed. This means any changes made outside of Home Assistant (e.g., via the Aroma-Link mobile app or website) will be reflected in Home Assistant within the configured interval for device state, or immediately when you view/edit schedules.
+1. Fill your diffuser and set the **Oil Fill Date** to today
+2. Let the diffuser operate normally
+3. The **Consumption Rate** sensor will begin reporting once enough data accumulates
+4. Alternatively, use the manual override fields if you already know your rate
 
 ## Troubleshooting
 
-- If you have issues connecting, verify that your Aroma-Link credentials are correct
-- Check the Home Assistant logs for debugging information
-- Enable debug logging in the integration options if you need more detail
-- Make sure your diffuser is connected to your WiFi network and accessible from the internet
-- If automatic device discovery fails, you can still manually specify your device ID
-
-## FAQ
-
-**Q: Can I control multiple diffusers?**  
-A: Yes! The integration now automatically discovers and adds all diffusers in your Aroma-Link account. Each diffuser gets its own set of entities in Home Assistant. When using service calls, you can specify which device to control using the `device_id` parameter, or leave it blank to use the first device if you only have one.
-
-**Q: Why is my diffuser showing as offline?**  
-A: Make sure your diffuser is connected to WiFi and properly set up in the Aroma-Link app.
-
-**Q: How do I find my device ID?**  
-A: You don't need to! The integration automatically discovers your devices and lets you select which one to use from a list.
-
-**Q: What happens if I change settings in the Aroma-Link app?**  
-A: The integration polls device state on a configurable interval (default 1 minute), so power/fan changes will be reflected within that interval. Schedule changes are loaded on-demand when you view the device page or refresh the schedule.
-
-**Q: Can I set different schedules for different days of the week?**  
-A: Yes! Each day (Monday-Sunday) has its own set of 5 programs. When you edit a program and save it, you can select which days to apply it to. The integration automatically merges your edited program into the full 5-program set for each selected day.
-
-## Version History
-
-- **1.6.1** (This fork): Enhanced Schedule Card UX
-  - Card title now shows "Device Name Diffuser"
-  - Compact cell display with smaller text
-  - Detailed instructions in card header
-  - "Level A/B/C" verbose labels instead of "LA/LB/LC"
-  - Removed Day/Program dropdowns (not needed with multi-select)
-  - Better overlap error message: "Schedules in Sun, Mon are overlapping..."
-  - **Today highlight** - current day column is highlighted amber
-  - **Hover tooltips** - shows full details (work/pause duration) on hover
-  - **Time validation** - ensures end time is after start time
-  - **Loading state** - visual feedback during save
-  - **Success/error messages** - confirmation toasts after actions
-  - **Select All / Clear All** quick action buttons
-  - **Level color coding** - different tints for A (green), B (amber), C (red)
-  - Styled toggle switch for enabled/disabled
-  - Native time picker inputs
-- **1.6.0** (This fork): Auto-Registered Custom Schedule Card with Multi-Select
-  - New custom Lovelace card (`aroma-link-schedule-card`) with interactive 7×5 matrix
-  - **Multi-cell selection**: Click cells to select, click P# row to select all days for that program
-  - **Bulk editing**: Apply changes to all selected cells at once
-  - **Overlap validation**: Prevents conflicting schedules on the same day
-  - **Auto-discovery**: Card automatically finds all Aroma-Link devices
-  - **Zero configuration**: Just add `type: custom:aroma-link-schedule-card`
-  - **Auto-registered**: No manual frontend resource installation required
-- **1.5.0** (This fork): Schedule Matrix Dashboard
-  - Added bulk schedule fetch (`refresh_all_schedules` service)
-  - Added `set_editor_program` service for dashboard card integration
-  - Auto-fetch all schedules on startup (no manual refresh needed)
-  - Fixed Save Program button to properly preserve local edits when saving
-  - Enhanced dashboard card examples with interactive 7×5 schedule matrix
-  - Improved cache management to prevent data loss during save operations
-- **1.4.0** (This fork): Diagnostics, metadata sensors, and configurable polling
-  - Added configurable polling interval (1–30 minutes)
-  - Added optional debug logging toggle
-  - Added diagnostics API tester service with event output
-  - Added metadata sensors (signal strength, firmware version, last update)
-- **1.3.0** (This fork): Native schedule entities and fan control
-  - Replaced helper-based system with native Home Assistant entities
-  - Added fan switch entity for fan on/off control
-  - Per-program editor with program selector, editor fields, and day selection
-  - On-demand schedule polling (no automatic polling)
-  - Schedule caching for performance
-  - All entities appear automatically on device page
-- **1.2.0** (This fork): Added full workset scheduling support
-  - Added `fetch_workset_for_day()` and `set_workset()` methods for reading/writing complete schedules
-  - Added `load_workset` and `save_workset` services for helper-based schedule management
-  - Support for up to 5 time programs per day with start/end times, work/pause durations, and consistency levels
-  - Multi-day schedule support (apply same schedule to multiple days)
-- **1.1.1** (This fork): Added SSL verification bypass to work around expired SSL certificates
-  - Added `VERIFY_SSL = False` constant to disable SSL certificate verification
-  - Updated all aiohttp requests to use `ssl=VERIFY_SSL` parameter
-  - Allows integration to work even when Aroma-Link's SSL certificates are expired
-- 1.1.0: Updated to support HACS integration (from [DalyMauldin's fork](https://github.com/DalyMauldin/ha_aromalink))
-- 1.0.0: Initial release with automatic device discovery (from [Memberapple's original](https://github.com/Memberapple/ha_aromalink))
+- **Can't connect:** Verify your Aroma-Link credentials work in the official app/website
+- **SSL errors:** Enable the "Allow SSL Fallback" option in the integration settings
+- **Card not appearing:** Clear your browser cache (Cmd+Shift+R) or try an incognito window. If needed, manually register the resource (see above).
+- **Schedule not updating after sync:** Click "Pull Schedule" in the card to refresh, or call the `refresh_all_schedules` service
+- **iOS/Safari scroll issues:** The card includes scroll-lock mitigations. If issues persist, ensure you're on the latest version.
+- **Debug logging:** Enable in the integration options to see detailed API calls in the Home Assistant logs
 
 ## Requirements
 
-- A valid Aroma-Link account
-- At least one registered diffuser device
+- A valid Aroma-Link account with at least one registered diffuser
 - Home Assistant 2023.3.0 or newer
-- An active internet connection
+- Active internet connection (the integration communicates with Aroma-Link's cloud API)
+
+## FAQ
+
+**Q: Can I control multiple diffusers?**
+A: Yes. The integration auto-discovers all devices in your Aroma-Link account. Each device gets its own set of entities. Use the `device_id` parameter in service calls to target a specific device.
+
+**Q: How does the "silent" control work?**
+A: The Schedule Active and Night Owl switches enable/disable schedule programs via the API rather than toggling device power. This avoids the audible beep that the power toggle causes.
+
+**Q: What is the Night Owl program?**
+A: P5 is designated as "Night Owl" — an after-hours program you can configure with your desired settings but leave disabled by default. Automations (or blueprints) can then toggle P5 on/off based on room presence sensors.
+
+**Q: Do I need to set up the blueprints?**
+A: Blueprints are optional. They provide guided automation setup for common scenarios (HVAC-linked scheduling, presence-based after-hours). You can also build your own automations using the provided entities.
+
+**Q: What happens if I change settings in the Aroma-Link app?**
+A: Device state (power, fan) is polled on the configured interval (default 1 minute). Schedule changes are loaded on-demand when you view the card or call `refresh_all_schedules`.
+
+## Credits
+
+**Fork Chain:**
+- Original: [Memberapple/ha_aromalink](https://github.com/Memberapple/ha_aromalink)
+- HACS support: [DalyMauldin/ha_aromalink](https://github.com/DalyMauldin/ha_aromalink)
+- This fork: [cjam28/homeassistant_aroma-link](https://github.com/cjam28/homeassistant_aroma-link)
+
+## Links
+
+- [Documentation](https://github.com/cjam28/homeassistant_aroma-link#readme)
+- [Issue Tracker](https://github.com/cjam28/homeassistant_aroma-link/issues)
 
 ## License
 
 This integration is provided as-is with no warranties.
-
-## Credits
-
-This is a fork of the Aroma-Link integration with SSL verification bypass added to work around expired SSL certificates.
-
-**Fork Chain:**
-- Original: [Memberapple/ha_aromalink](https://github.com/Memberapple/ha_aromalink)
-- Intermediate: [DalyMauldin/ha_aromalink](https://github.com/DalyMauldin/ha_aromalink)
-- This fork: [cjam28/ha_aromalink](https://github.com/cjam28/ha_aromalink)
-
-Developed for Home Assistant community use.
-
-## Links
-
-- [Documentation](https://github.com/cjam28/ha_aromalink#readme)
-- [Issue Tracker](https://github.com/cjam28/ha_aromalink/issues)
-- [Original Repository](https://github.com/Memberapple/ha_aromalink)
-- [DalyMauldin's Fork](https://github.com/DalyMauldin/ha_aromalink)

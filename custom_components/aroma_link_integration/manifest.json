@@ -5,9 +5,9 @@
   "codeowners": ["@cjam28", "@DalyMauldin", "@Memberapple"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/cjam28/ha_aromalink#readme",
+  "documentation": "https://github.com/cjam28/homeassistant_aroma-link#readme",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/cjam28/ha_aromalink/issues",
+  "issue_tracker": "https://github.com/cjam28/homeassistant_aroma-link/issues",
   "loggers": ["custom_components.aroma_link_integration"],
   "requirements": [],
   "version": "2.5.0"

@@ -1,15 +1,19 @@
 blueprint:
   name: "Aroma-Link: Scheduled Diffuser with HVAC"
   description: >
-    Automatically enables/disables the diffuser schedule when your HVAC fan
-    turns on or off. Only runs during scheduled hours and when someone is home.
+    Automatically enables/disables the diffuser schedule when your HVAC system
+    starts or stops heating/cooling. Only runs during scheduled hours and when
+    someone is home. Triggers on the hvac_action attribute (idle → heating/cooling).
   domain: automation
   author: cjam28
   source_url: https://raw.githubusercontent.com/cjam28/homeassistant_aroma-link/master/custom_components/aroma_link_integration/blueprints/automation/aroma_link_scheduled.yaml
   input:
     hvac_entity:
       name: HVAC / Thermostat
-      description: The climate entity whose fan state triggers the diffuser.
+      description: >
+        The climate entity to monitor. Triggers when hvac_action changes
+        from idle to heating/cooling (and back). Works with ecobee, Nest,
+        and other standard climate entities.
       selector:
         entity:
           domain: climate
@@ -31,9 +35,9 @@ blueprint:
       selector:
         entity:
           domain: switch
-    fan_on_delay:
-      name: Fan On Delay
-      description: Minutes to wait after the HVAC fan turns on before enabling the diffuser.
+    hvac_on_delay:
+      name: HVAC On Delay
+      description: Minutes to wait after the HVAC starts running before enabling the diffuser.
       default: 1
       selector:
         number:
@@ -46,18 +50,16 @@ mode: single
 triggers:
   - trigger: state
     entity_id: !input hvac_entity
-    attribute: fan
-    from: "off"
-    to: "on"
+    attribute: hvac_action
+    from: "idle"
     for:
-      minutes: !input fan_on_delay
-    id: hvac_fan_on
+      minutes: !input hvac_on_delay
+    id: hvac_on
   - trigger: state
     entity_id: !input hvac_entity
-    attribute: fan
-    from: "on"
-    to: "off"
-    id: hvac_fan_off
+    attribute: hvac_action
+    to: "idle"
+    id: hvac_off
 
 conditions:
   - condition: state
@@ -71,14 +73,14 @@ actions:
   - choose:
       - conditions:
           - condition: trigger
-            id: hvac_fan_on
+            id: hvac_on
         sequence:
           - action: switch.turn_on
             target:
               entity_id: !input schedule_active_switch
       - conditions:
           - condition: trigger
-            id: hvac_fan_off
+            id: hvac_off
         sequence:
           - action: switch.turn_off
             target:
