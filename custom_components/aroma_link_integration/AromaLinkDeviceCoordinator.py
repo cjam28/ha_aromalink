@@ -1177,11 +1177,23 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         SCHEDULE_PROGRAMS = 4
         day = self._get_today_schedule_day()
 
+        _LOGGER.info(
+            "set_today_programs_enabled called: enabled=%s, day=%s",
+            enabled, day
+        )
+
         # Always fetch fresh from API to avoid pushing stale data for other programs
         fresh_programs = await self.fetch_workset_for_day(day)
         if not fresh_programs:
             _LOGGER.warning("Could not fetch schedule for today (day %s), cannot toggle programs", day)
             return False
+
+        for i, p in enumerate(fresh_programs):
+            _LOGGER.info(
+                "  Fetched P%d: enabled=%s, start=%s, end=%s, work=%s, pause=%s, level=%s",
+                i + 1, p.get("enabled"), p.get("start_time"), p.get("end_time"),
+                p.get("work_sec"), p.get("pause_sec"), p.get("level")
+            )
 
         if day not in self._saved_enabled_state:
             self._saved_enabled_state[day] = [
@@ -1199,6 +1211,9 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             for i, was_on in enumerate(snapshot):
                 api_programs[i]["enabled"] = 1 if was_on else 0
 
+        for i, p in enumerate(api_programs):
+            _LOGGER.info("  Pushing P%d: %s", i + 1, p)
+
         return await self.set_workset([day], api_programs, skip_refresh=True)
 
     async def set_program_enabled(self, day, program_num, enabled):
@@ -1215,11 +1230,24 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         Returns:
             True if the API call succeeded.
         """
+        _LOGGER.info(
+            "set_program_enabled called: day=%s, program=%s, enabled=%s",
+            day, program_num, enabled
+        )
+
         # Always fetch fresh from API to avoid pushing stale data for other programs
         fresh_programs = await self.fetch_workset_for_day(day)
         if not fresh_programs:
             _LOGGER.warning("Could not fetch schedule for day %s", day)
             return False
+
+        # Log what we fetched so we can verify P1 data
+        for i, p in enumerate(fresh_programs):
+            _LOGGER.info(
+                "  Fetched P%d: enabled=%s, start=%s, end=%s, work=%s, pause=%s, level=%s",
+                i + 1, p.get("enabled"), p.get("start_time"), p.get("end_time"),
+                p.get("work_sec"), p.get("pause_sec"), p.get("level")
+            )
 
         if program_num < 1 or program_num > len(fresh_programs):
             _LOGGER.warning("Invalid program number %s", program_num)
@@ -1227,6 +1255,10 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
 
         api_programs = self._cache_to_api_format(fresh_programs)
         api_programs[program_num - 1]["enabled"] = 1 if enabled else 0
+
+        # Log what we're about to push
+        for i, p in enumerate(api_programs):
+            _LOGGER.info("  Pushing P%d: %s", i + 1, p)
 
         return await self.set_workset([day], api_programs, skip_refresh=True)
 
