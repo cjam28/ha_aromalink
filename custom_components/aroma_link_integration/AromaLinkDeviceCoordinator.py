@@ -855,16 +855,20 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
     
     async def async_refresh_schedule(self, week_day):
         """Refresh schedule for a day from API (on-demand).
-        
+
+        Also captures the user's intended P1-P4 enabled states so
+        automation restore logic always has the correct baseline.
+
         Args:
             week_day: Day of week (0=Monday, 1=Tuesday, ..., 6=Sunday)
-            
+
         Returns:
             List of 5 program dictionaries, or None on error.
         """
         workset = await self.fetch_workset_for_day(week_day)
         if workset:
             self._schedule_cache[week_day] = workset
+            self.update_user_intent(week_day)
             _LOGGER.debug(f"Cached schedule for day {week_day}")
         return workset
 
@@ -1158,24 +1162,20 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         return (now.weekday() + 1) % 7
 
     async def set_today_programs_enabled(self, enabled):
-        """Enable or disable P1-P4 for today and push to API.
+        """Enable or disable P1-P4 on the device for today.
 
-        Only touches programs 1-4 (indices 0-3). P5 (Night Owl) is left
-        untouched so the Schedule Active and Night Owl switches don't
-        interfere with each other.
-
-        When disabling: saves a snapshot of P1-P4 enabled states,
-        then disables P1-P4.
-        When enabling: restores P1-P4 from the saved snapshot so only
-        the programs that were previously on get re-enabled.
+        Uses the user's intended schedule (from _saved_enabled_state) as
+        the source of truth. Pushing to the API does NOT refresh the cache,
+        so the schedule card always shows the user's intended configuration.
 
         Args:
-            enabled: True to restore/enable P1-P4, False to disable P1-P4.
+            enabled: True to restore user's P1-P4 settings on device,
+                     False to disable P1-P4 on device (silent stop).
 
         Returns:
             True if the API call succeeded.
         """
-        SCHEDULE_PROGRAMS = 4  # P1-P4; P5 is Night Owl
+        SCHEDULE_PROGRAMS = 4
         day = self._get_today_schedule_day()
 
         if day not in self._schedule_cache:
@@ -1185,40 +1185,29 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("No schedule cached for today (day %s), cannot toggle programs", day)
             return False
 
-        api_programs = self._cache_to_api_format(programs)
-
-        if not enabled:
+        if day not in self._saved_enabled_state:
             self._saved_enabled_state[day] = [
                 p.get("enabled", 0) == 1 for p in programs[:SCHEDULE_PROGRAMS]
             ]
             self._request_oil_state_save()
+
+        api_programs = self._cache_to_api_format(programs)
+
+        if not enabled:
             for prog in api_programs[:SCHEDULE_PROGRAMS]:
                 prog["enabled"] = 0
         else:
-            snapshot = self._saved_enabled_state.get(day)
-            if snapshot and len(snapshot) == SCHEDULE_PROGRAMS:
-                for i, was_on in enumerate(snapshot):
-                    api_programs[i]["enabled"] = 1 if was_on else 0
-            else:
-                _LOGGER.info(
-                    "No saved snapshot for day %s — re-enabling P1-P4 programs "
-                    "that have non-default time windows", day)
-                for i in range(SCHEDULE_PROGRAMS):
-                    has_custom_window = (
-                        programs[i].get("start_time", "00:00") != "00:00"
-                        or programs[i].get("end_time", "23:59") != "23:59"
-                    )
-                    api_programs[i]["enabled"] = 1 if has_custom_window else 0
-                if not any(api_programs[i]["enabled"] for i in range(SCHEDULE_PROGRAMS)):
-                    api_programs[0]["enabled"] = 1
+            snapshot = self._saved_enabled_state[day]
+            for i, was_on in enumerate(snapshot):
+                api_programs[i]["enabled"] = 1 if was_on else 0
 
-        result = await self.set_workset([day], api_programs)
-        if result:
-            await self.async_refresh_schedule(day)
-        return result
+        return await self.set_workset([day], api_programs, skip_refresh=True)
 
     async def set_program_enabled(self, day, program_num, enabled):
-        """Enable or disable a single program for a given day and push to API.
+        """Enable or disable a single program on the device.
+
+        Pushes the change to the Aroma-Link API without refreshing the
+        cache, so the schedule card preserves the user's intended config.
 
         Args:
             day: Schedule day number (0=Sun .. 6=Sat).
@@ -1242,10 +1231,28 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         api_programs = self._cache_to_api_format(programs)
         api_programs[program_num - 1]["enabled"] = 1 if enabled else 0
 
-        result = await self.set_workset([day], api_programs)
-        if result:
-            await self.async_refresh_schedule(day)
-        return result
+        return await self.set_workset([day], api_programs, skip_refresh=True)
+
+    def update_user_intent(self, day=None):
+        """Capture the user's intended P1-P4 enabled states from the cache.
+
+        Call this after the user explicitly saves their schedule so the
+        automation restore logic uses the correct baseline.
+        """
+        SCHEDULE_PROGRAMS = 4
+        if day is not None:
+            programs = self._schedule_cache.get(day, [])
+            if programs:
+                self._saved_enabled_state[day] = [
+                    p.get("enabled", 0) == 1 for p in programs[:SCHEDULE_PROGRAMS]
+                ]
+        else:
+            for d, programs in self._schedule_cache.items():
+                if programs:
+                    self._saved_enabled_state[d] = [
+                        p.get("enabled", 0) == 1 for p in programs[:SCHEDULE_PROGRAMS]
+                    ]
+        self._request_oil_state_save()
 
     def get_device_info(self):
         """Get device info for entity setup."""

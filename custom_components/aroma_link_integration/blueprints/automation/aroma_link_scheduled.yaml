@@ -1,9 +1,11 @@
 blueprint:
   name: "Aroma-Link: Scheduled Diffuser with HVAC"
   description: >
-    Automatically enables/disables the diffuser schedule when your HVAC system
-    starts or stops heating/cooling. Only runs during scheduled hours and when
-    someone is home. Triggers on the hvac_action attribute (idle → heating/cooling).
+    Automatically enables/disables the diffuser schedule (P1-P4) when your
+    HVAC system starts or stops heating/cooling. Only runs during scheduled
+    hours and when someone is home. Also reacts to schedule window boundaries
+    — disables P1-P4 when the window closes and enables them when it opens
+    (if HVAC is already active). Triggers on hvac_action (idle → heating/cooling).
   domain: automation
   author: cjam28
   source_url: https://raw.githubusercontent.com/cjam28/homeassistant_aroma-link/master/custom_components/aroma_link_integration/blueprints/automation/aroma_link_scheduled.yaml
@@ -60,27 +62,66 @@ triggers:
     attribute: hvac_action
     to: "idle"
     id: hvac_off
-
-conditions:
-  - condition: state
-    entity_id: !input occupancy_sensor
-    state: "on"
-  - condition: state
+  - trigger: state
     entity_id: !input scheduled_on_sensor
-    state: "on"
+    to: "on"
+    id: schedule_window_open
+  - trigger: state
+    entity_id: !input scheduled_on_sensor
+    to: "off"
+    id: schedule_window_close
 
 actions:
   - choose:
+      # HVAC starts running during schedule → enable P1-P4
       - conditions:
           - condition: trigger
             id: hvac_on
+          - condition: state
+            entity_id: !input occupancy_sensor
+            state: "on"
+          - condition: state
+            entity_id: !input scheduled_on_sensor
+            state: "on"
         sequence:
           - action: switch.turn_on
             target:
               entity_id: !input schedule_active_switch
+
+      # HVAC goes idle during schedule → disable P1-P4
       - conditions:
           - condition: trigger
             id: hvac_off
+          - condition: state
+            entity_id: !input scheduled_on_sensor
+            state: "on"
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: !input schedule_active_switch
+
+      # Schedule window opens + HVAC already active + occupied → enable P1-P4
+      - conditions:
+          - condition: trigger
+            id: schedule_window_open
+          - condition: state
+            entity_id: !input occupancy_sensor
+            state: "on"
+          - condition: not
+            conditions:
+              - condition: state
+                entity_id: !input hvac_entity
+                attribute: hvac_action
+                state: "idle"
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: !input schedule_active_switch
+
+      # Schedule window closes → disable P1-P4 (cleanup)
+      - conditions:
+          - condition: trigger
+            id: schedule_window_close
         sequence:
           - action: switch.turn_off
             target:

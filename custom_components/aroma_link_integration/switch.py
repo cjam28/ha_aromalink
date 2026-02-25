@@ -173,15 +173,15 @@ class AromaLinkProgramEnabled(CoordinatorEntity, SwitchEntity):
 
 
 class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
-    """Switch to enable/disable P1-P4 for today on the device.
+    """Switch to enable/disable P1-P4 on the device for today.
 
-    Only controls the regular schedule programs (P1-P4). P5 (Night Owl)
-    is managed independently by AromaLinkNightOwlSwitch. Provides a
-    silent alternative to the power toggle — toggling schedule programs
-    makes the diffuser start or stop without the audible beep.
+    Tracks its own on/off state independently from the schedule cache.
+    The cache always reflects the user's intended configuration; this
+    switch controls what's actually running on the device.
+
+    ON  = user's intended P1-P4 enabled states are pushed to the device
+    OFF = all P1-P4 disabled on the device (silent stop, no beep)
     """
-
-    SCHEDULE_PROGRAMS = 4  # P1-P4; P5 is Night Owl
 
     def __init__(self, coordinator, entry, device_id, device_name):
         super().__init__(coordinator)
@@ -190,6 +190,7 @@ class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
         self._name = f"{device_name} Schedule Active"
         self._unique_id = f"{entry.data['username']}_{device_id}_schedule_active"
         self._attr_icon = "mdi:calendar-check"
+        self._is_active = True
 
     @property
     def name(self):
@@ -201,15 +202,7 @@ class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def is_on(self):
-        """True if any of P1-P4 for today is enabled."""
-        day = self.coordinator._get_today_schedule_day()
-        programs = self.coordinator._schedule_cache.get(day)
-        if not programs:
-            return False
-        return any(
-            p.get("enabled", 0) == 1
-            for p in programs[:self.SCHEDULE_PROGRAMS]
-        )
+        return self._is_active
 
     @property
     def device_info(self):
@@ -223,23 +216,25 @@ class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
     @property
     def extra_state_attributes(self):
         day = self.coordinator._get_today_schedule_day()
-        programs = self.coordinator._schedule_cache.get(day, [])
-        enabled_nums = [
-            i + 1 for i, p in enumerate(programs[:self.SCHEDULE_PROGRAMS])
-            if p.get("enabled", 0) == 1
+        snapshot = self.coordinator._saved_enabled_state.get(day, [])
+        intended_nums = [
+            i + 1 for i, on in enumerate(snapshot) if on
         ]
         return {
             "schedule_day": day,
-            "enabled_programs": enabled_nums,
+            "intended_programs": intended_nums,
+            "device_active": self._is_active,
         }
 
     async def async_turn_on(self, **kwargs):
-        """Enable P1-P4 for today and push to device."""
+        """Restore user's intended P1-P4 on the device."""
+        self._is_active = True
         await self.coordinator.set_today_programs_enabled(True)
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):
-        """Disable P1-P4 for today and push to device."""
+        """Disable P1-P4 on the device (user intent preserved in HA)."""
+        self._is_active = False
         await self.coordinator.set_today_programs_enabled(False)
         self.async_write_ha_state()
 
@@ -247,9 +242,10 @@ class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
 class AromaLinkNightOwlSwitch(CoordinatorEntity, SwitchEntity):
     """Switch to silently enable/disable Program 5 (Night Owl) for today.
 
-    P5 should be configured with an after-hours time window (e.g. 22:00-06:00).
-    Toggling this switch enables/disables only P5 on the device, leaving
-    P1-P4 untouched. Ideal for presence-based after-hours automations.
+    Tracks its own on/off state independently from the schedule cache.
+    The cache always reflects the user's intended configuration (P5
+    disabled by default); this switch controls what's actually running
+    on the device. Ideal for presence-based after-hours automations.
     """
 
     PROGRAM_NUM = 5
@@ -261,6 +257,7 @@ class AromaLinkNightOwlSwitch(CoordinatorEntity, SwitchEntity):
         self._name = f"{device_name} Night Owl"
         self._unique_id = f"{entry.data['username']}_{device_id}_night_owl"
         self._attr_icon = "mdi:weather-night"
+        self._is_active = False
 
     @property
     def name(self):
@@ -272,12 +269,7 @@ class AromaLinkNightOwlSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def is_on(self):
-        """True if P5 is enabled for today."""
-        day = self.coordinator._get_today_schedule_day()
-        programs = self.coordinator._schedule_cache.get(day)
-        if not programs or len(programs) < self.PROGRAM_NUM:
-            return False
-        return programs[self.PROGRAM_NUM - 1].get("enabled", 0) == 1
+        return self._is_active
 
     @property
     def device_info(self):
@@ -298,16 +290,19 @@ class AromaLinkNightOwlSwitch(CoordinatorEntity, SwitchEntity):
             "program": self.PROGRAM_NUM,
             "start_time": p5.get("start_time", "unknown"),
             "end_time": p5.get("end_time", "unknown"),
+            "device_active": self._is_active,
         }
 
     async def async_turn_on(self, **kwargs):
-        """Enable P5 for today and push to device."""
+        """Enable P5 on the device for today."""
+        self._is_active = True
         day = self.coordinator._get_today_schedule_day()
         await self.coordinator.set_program_enabled(day, self.PROGRAM_NUM, True)
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):
-        """Disable P5 for today and push to device."""
+        """Disable P5 on the device for today."""
+        self._is_active = False
         day = self.coordinator._get_today_schedule_day()
         await self.coordinator.set_program_enabled(day, self.PROGRAM_NUM, False)
         self.async_write_ha_state()

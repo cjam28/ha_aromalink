@@ -101,8 +101,14 @@ class AromaLinkScheduledOnSensor(CoordinatorEntity, BinarySensorEntity):
             attrs["current_level"] = active[0]["level"]
         return attrs
 
+    SCHEDULE_PROGRAMS = 4  # Only P1-P4; P5 (Night Owl) is automation-controlled
+
     def _get_active_programs(self):
-        """Return list of programs whose time window covers the current time."""
+        """Return list of P1-P4 programs whose time window covers the current time.
+
+        P5 (Night Owl) is excluded because it uses a 00:00-23:59 window
+        and is toggled by automations, not the schedule.
+        """
         now = dt_util.now()
 
         # Convert Python weekday (Mon=0 .. Sun=6) to schedule convention (Sun=0 .. Sat=6)
@@ -115,7 +121,7 @@ class AromaLinkScheduledOnSensor(CoordinatorEntity, BinarySensorEntity):
         current_minutes = now.hour * 60 + now.minute
         active = []
 
-        for idx, prog in enumerate(programs, 1):
+        for idx, prog in enumerate(programs[:self.SCHEDULE_PROGRAMS], 1):
             if prog.get("enabled", 0) != 1:
                 continue
 

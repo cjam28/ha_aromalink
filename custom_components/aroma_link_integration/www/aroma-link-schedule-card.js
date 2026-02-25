@@ -1,5 +1,5 @@
 /**
- * Aroma-Link Schedule Card v2.6.5
+ * Aroma-Link Schedule Card v2.7.0
  * 
  * A complete dashboard card for Aroma-Link diffusers including:
  * - Compact manual controls (Power applies work/pause, Fan, Timed Run)
@@ -53,6 +53,9 @@ class AromaLinkScheduleCard extends HTMLElement {
     // Flag to suppress renders during operations (push/pull)
     this._isOperationInProgress = false;
     this._renderPending = false;
+
+    // State fingerprint for smart re-render (only re-render when relevant entities change)
+    this._lastStateFingerprint = null;
 
     // Oil panel open state per device
     this._oilPanelOpenByDevice = new Map();
@@ -620,6 +623,29 @@ class AromaLinkScheduleCard extends HTMLElement {
     setTimeout(() => this.render(), 0);
   }
 
+  _resetAllSchedules(sensor) {
+    const staged = this._getStagedChanges(sensor.deviceName);
+    let count = 0;
+
+    for (let day = 0; day < 7; day++) {
+      for (let prog = 1; prog <= 5; prog++) {
+        const key = `${day}-${prog}`;
+        staged.set(key, {
+          enabled: false,
+          startTime: '00:00',
+          endTime: '23:59',
+          workSec: 10,
+          pauseSec: 120,
+          level: 'A'
+        });
+        count++;
+      }
+    }
+
+    this._showStatus(`✓ Staged ${count} cells for reset to defaults. Click "Sync Staged" to apply.`, false, sensor.deviceName);
+    setTimeout(() => this.render(), 0);
+  }
+
   _getCellDataFromMatrix(sensor, day, prog) {
     const matrix = sensor.matrix || {};
     const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -856,6 +882,17 @@ class AromaLinkScheduleCard extends HTMLElement {
     this._config = config;
   }
 
+  _getStateFingerprint(hass) {
+    if (!hass) return '';
+    const parts = [];
+    for (const [entityId, state] of Object.entries(hass.states)) {
+      if (entityId.includes('aroma_link') || entityId.includes('aromalink')) {
+        parts.push(entityId + '=' + state.state + '|' + state.last_updated);
+      }
+    }
+    return parts.join(';');
+  }
+
   set hass(hass) {
     this._hass = hass;
     if (!this._initialized) {
@@ -863,12 +900,19 @@ class AromaLinkScheduleCard extends HTMLElement {
       this.render();
       return;
     }
-    // Don't re-render if an input or time field is focused - this prevents the field from losing focus
+
+    // Only re-render if aroma-link entities actually changed
+    const fingerprint = this._getStateFingerprint(hass);
+    if (fingerprint === this._lastStateFingerprint) {
+      return;
+    }
+    this._lastStateFingerprint = fingerprint;
+
+    // Don't re-render if an input field is focused
     const activeEl = this.shadowRoot?.activeElement;
     if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'SELECT' || activeEl.tagName === 'TEXTAREA')) {
       return;
     }
-    // Also check if a nested shadowRoot has focus
     const docActive = document.activeElement;
     if (docActive === this && this.shadowRoot) {
       const shadowActive = this.shadowRoot.activeElement;
@@ -1371,7 +1415,8 @@ class AromaLinkScheduleCard extends HTMLElement {
                   </select>
                 </div>
               ` : ''}
-              <button class="chip-btn pull-btn" data-action="pull" data-device="${sensor.deviceName}">Pull Aroma-Link Schedule</button>
+              <button class="chip-btn pull-btn" data-action="pull" data-device="${sensor.deviceName}">Pull Schedule</button>
+              <button class="chip-btn reset-btn" data-action="reset-all" data-device="${sensor.deviceName}">Reset All</button>
             </div>
             
             <!-- Legend -->
@@ -1800,6 +1845,18 @@ class AromaLinkScheduleCard extends HTMLElement {
         e.stopPropagation();
         const sensor = sensors.find(s => s.deviceName === btn.dataset.device);
         if (sensor) await this._pullSchedule(sensor);
+      });
+    });
+
+    // Reset All
+    this.shadowRoot.querySelectorAll('[data-action="reset-all"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (this._isSaving) return;
+        if (!confirm('Reset ALL schedules to defaults (00:00-23:59, disabled)? This will stage the changes — you still need to Sync to apply.')) return;
+        const sensor = sensors.find(s => s.deviceName === btn.dataset.device);
+        if (sensor) this._resetAllSchedules(sensor);
       });
     });
 
@@ -2365,6 +2422,14 @@ class AromaLinkScheduleCard extends HTMLElement {
         background: rgba(3, 169, 244, 0.1);
         color: var(--color-primary);
         border-color: rgba(3, 169, 244, 0.2);
+      }
+      .chip-btn.reset-btn {
+        background: rgba(244, 67, 54, 0.08);
+        color: var(--error-color, #f44336);
+        border-color: rgba(244, 67, 54, 0.2);
+      }
+      .chip-btn.reset-btn:hover {
+        background: rgba(244, 67, 54, 0.15);
       }
       
       .chip-btn.discard-btn {
