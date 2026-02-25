@@ -228,12 +228,16 @@ class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs):
         """Restore user's intended P1-P4 on the device."""
+        if self._is_active:
+            return
         self._is_active = True
         await self.coordinator.set_today_programs_enabled(True)
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):
         """Disable P1-P4 on the device (user intent preserved in HA)."""
+        if not self._is_active:
+            return
         self._is_active = False
         await self.coordinator.set_today_programs_enabled(False)
         self.async_write_ha_state()
@@ -295,6 +299,8 @@ class AromaLinkNightOwlSwitch(CoordinatorEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs):
         """Enable P5 on the device for today."""
+        if self._is_active:
+            return
         self._is_active = True
         day = self.coordinator._get_today_schedule_day()
         await self.coordinator.set_program_enabled(day, self.PROGRAM_NUM, True)
@@ -302,6 +308,8 @@ class AromaLinkNightOwlSwitch(CoordinatorEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs):
         """Disable P5 on the device for today."""
+        if not self._is_active:
+            return
         self._is_active = False
         day = self.coordinator._get_today_schedule_day()
         await self.coordinator.set_program_enabled(day, self.PROGRAM_NUM, False)

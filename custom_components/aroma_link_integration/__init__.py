@@ -259,41 +259,36 @@ async def _install_blueprints(hass: HomeAssistant):
     source_dir = os.path.join(
         os.path.dirname(__file__), "blueprints", "automation"
     )
-    if not os.path.isdir(source_dir):
-        _LOGGER.debug("No bundled blueprints directory found at %s", source_dir)
-        return
-
     target_dir = hass.config.path(
         "blueprints", "automation", "aroma_link_integration"
     )
 
-    try:
+    def _sync_copy():
+        if not os.path.isdir(source_dir):
+            _LOGGER.debug("No bundled blueprints directory found at %s", source_dir)
+            return 0
         os.makedirs(target_dir, exist_ok=True)
-    except OSError as exc:
-        _LOGGER.warning("Could not create blueprints directory %s: %s", target_dir, exc)
-        return
-
-    installed = 0
-    for filename in os.listdir(source_dir):
-        if not filename.endswith(".yaml"):
-            continue
-        src = os.path.join(source_dir, filename)
-        dst = os.path.join(target_dir, filename)
-
-        if os.path.exists(dst) and os.path.getmtime(src) <= os.path.getmtime(dst):
-            continue
-
-        try:
+        count = 0
+        for filename in os.listdir(source_dir):
+            if not filename.endswith(".yaml"):
+                continue
+            src = os.path.join(source_dir, filename)
+            dst = os.path.join(target_dir, filename)
+            if os.path.exists(dst) and os.path.getmtime(src) <= os.path.getmtime(dst):
+                continue
             shutil.copy2(src, dst)
-            installed += 1
+            count += 1
             _LOGGER.debug("Installed blueprint: %s", filename)
-        except OSError as exc:
-            _LOGGER.warning("Failed to install blueprint %s: %s", filename, exc)
+        return count
 
-    if installed:
-        _LOGGER.info(
-            "Installed %d Aroma-Link blueprint(s) to %s", installed, target_dir
-        )
+    try:
+        installed = await hass.async_add_executor_job(_sync_copy)
+        if installed:
+            _LOGGER.info(
+                "Installed %d Aroma-Link blueprint(s) to %s", installed, target_dir
+            )
+    except OSError as exc:
+        _LOGGER.warning("Failed to install blueprints: %s", exc)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):

@@ -1,18 +1,24 @@
 blueprint:
   name: "Aroma-Link: Night Owl (After-Hours Presence)"
   description: >
-    Silently enables/disables the Night Owl program (P5) when room presence
-    sensors detect someone is up outside of scheduled hours. Uses program
-    toggle instead of power toggle so the diffuser operates without beeping.
+    Enables the Night Owl program (P5) when room presence is detected outside
+    of scheduled hours and HVAC is running. Uses program toggle instead of
+    power toggle so the diffuser operates without beeping.
   domain: automation
   author: cjam28
   source_url: https://raw.githubusercontent.com/cjam28/homeassistant_aroma-link/master/custom_components/aroma_link_integration/blueprints/automation/aroma_link_night_owl.yaml
   input:
+    hvac_entity:
+      name: HVAC / Thermostat
+      description: The climate entity to monitor.
+      selector:
+        entity:
+          domain: climate
     presence_sensors:
       name: Presence Sensors
       description: >
-        Room presence or occupancy sensors that indicate someone is awake
-        and moving around (e.g. living room, kitchen). Select one or more.
+        Room presence or occupancy sensors that detect someone is awake
+        after hours. Select one or more.
       selector:
         entity:
           domain: binary_sensor
@@ -29,9 +35,18 @@ blueprint:
       selector:
         entity:
           domain: switch
-    off_delay:
-      name: Turn-Off Delay
-      description: Minutes to wait after all presence sensors clear before disabling the diffuser.
+    hvac_on_delay:
+      name: HVAC On Delay
+      description: Minutes to wait after the HVAC starts before enabling the diffuser.
+      default: 1
+      selector:
+        number:
+          min: 0
+          max: 30
+          unit_of_measurement: minutes
+    presence_off_delay:
+      name: Presence Off Delay
+      description: Minutes to wait after all presence sensors clear before disabling Night Owl.
       default: 10
       selector:
         number:
@@ -39,38 +54,46 @@ blueprint:
           max: 60
           unit_of_measurement: minutes
 
-mode: single
+mode: restart
 
 triggers:
   - trigger: state
+    entity_id: !input hvac_entity
+    attribute: hvac_action
+    from: "idle"
+    for:
+      minutes: !input hvac_on_delay
+  - trigger: state
+    entity_id: !input hvac_entity
+    attribute: hvac_action
+    to: "idle"
+  - trigger: state
     entity_id: !input presence_sensors
     to: "on"
-    id: presence_on
   - trigger: state
     entity_id: !input presence_sensors
     to: "off"
     for:
-      minutes: !input off_delay
-    id: presence_off
-
-conditions:
-  - condition: state
-    entity_id: !input scheduled_on_sensor
-    state: "off"
+      minutes: !input presence_off_delay
 
 actions:
-  - choose:
-      - conditions:
-          - condition: trigger
-            id: presence_on
-        sequence:
-          - action: switch.turn_on
-            target:
-              entity_id: !input night_owl_switch
-      - conditions:
-          - condition: trigger
-            id: presence_off
-        sequence:
-          - action: switch.turn_off
-            target:
-              entity_id: !input night_owl_switch
+  - variables:
+      hvac_entity: !input hvac_entity
+      scheduled_on_sensor: !input scheduled_on_sensor
+      presence_sensors: !input presence_sensors
+  - variables:
+      want_night_owl: >-
+        {{ state_attr(hvac_entity, 'hvac_action') not in ['idle', none, 'off']
+           and is_state(scheduled_on_sensor, 'off')
+           and expand(presence_sensors) | selectattr('state', 'eq', 'on') | list | count > 0 }}
+  - if:
+      - condition: template
+        value_template: "{{ want_night_owl }}"
+    then:
+      - action: switch.turn_on
+        target:
+          entity_id: !input night_owl_switch
+    else:
+      - action: switch.turn_off
+        target:
+          entity_id: !input night_owl_switch

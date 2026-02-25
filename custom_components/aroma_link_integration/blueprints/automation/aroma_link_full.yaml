@@ -1,13 +1,14 @@
 blueprint:
   name: "Aroma-Link: Full Diffuser Control (Schedule + Night Owl)"
   description: >
-    Complete diffuser automation. During scheduled hours (P1-P4) the diffuser
-    follows the HVAC — enabled when heating/cooling, disabled when idle — so
-    scent only distributes while air is flowing. Outside scheduled hours,
-    Night Owl (P5) activates when the HVAC is running AND room presence is
-    detected. Your schedule configuration is never modified — the automation
-    temporarily toggles programs on the device while preserving your settings
-    in Home Assistant.
+    Complete diffuser automation using an evaluate-and-set pattern. Every
+    trigger re-evaluates the current state and sets both switches accordingly:
+
+      Schedule active = HVAC running + in scheduled window + home occupied
+      Night Owl       = HVAC running + outside schedule + room presence
+
+    Switches are idempotent — redundant on/off calls are safely ignored.
+    Your saved schedule configuration is never modified.
   domain: automation
   author: cjam28
   source_url: https://raw.githubusercontent.com/cjam28/homeassistant_aroma-link/master/custom_components/aroma_link_integration/blueprints/automation/aroma_link_full.yaml
@@ -16,47 +17,46 @@ blueprint:
       name: HVAC / Thermostat
       description: >
         The climate entity to monitor. Triggers when hvac_action changes
-        between idle and heating/cooling. Works with ecobee, Nest, and
-        other standard climate entities.
+        between idle and heating/cooling.
       selector:
         entity:
           domain: climate
     occupancy_sensor:
       name: Home Occupancy Sensor
-      description: Binary sensor that indicates someone is home (used for scheduled-hours condition).
+      description: Binary sensor that indicates someone is home (used during scheduled hours).
       selector:
         entity:
           domain: binary_sensor
     presence_sensors:
       name: Room Presence Sensors (After-Hours)
       description: >
-        Specific room sensors that detect someone is awake and moving around
-        after hours (e.g. living room, kitchen). Select one or more.
+        Specific room sensors that detect someone is awake after hours
+        (e.g. living room, kitchen). Select one or more.
       selector:
         entity:
           domain: binary_sensor
           multiple: true
     scheduled_on_sensor:
       name: Scheduled On Sensor
-      description: "The Aroma-Link 'Scheduled On' binary sensor (binary_sensor.*_scheduled_on). Only checks P1-P4."
+      description: "The Aroma-Link 'Scheduled On' binary sensor (binary_sensor.*_scheduled_on)."
       selector:
         entity:
           domain: binary_sensor
     schedule_active_switch:
       name: Schedule Active Switch
-      description: "The Aroma-Link 'Schedule Active' switch (switch.*_schedule_active). Controls P1-P4 on the device without changing your saved config."
+      description: "The Aroma-Link 'Schedule Active' switch (switch.*_schedule_active). Controls P1-P4."
       selector:
         entity:
           domain: switch
     night_owl_switch:
       name: Night Owl Switch
-      description: "The Aroma-Link 'Night Owl' switch (switch.*_night_owl). Controls P5 on the device."
+      description: "The Aroma-Link 'Night Owl' switch (switch.*_night_owl). Controls P5."
       selector:
         entity:
           domain: switch
     hvac_on_delay:
       name: HVAC On Delay
-      description: Minutes to wait after the HVAC starts running before enabling the diffuser.
+      description: Minutes to wait after the HVAC starts before enabling the diffuser.
       default: 1
       selector:
         number:
@@ -76,184 +76,70 @@ blueprint:
 mode: restart
 
 triggers:
-  # --- HVAC activity triggers ---
   - trigger: state
     entity_id: !input hvac_entity
     attribute: hvac_action
     from: "idle"
     for:
       minutes: !input hvac_on_delay
-    id: hvac_on
   - trigger: state
     entity_id: !input hvac_entity
     attribute: hvac_action
     to: "idle"
-    id: hvac_off
-  # --- Schedule window boundary triggers ---
   - trigger: state
     entity_id: !input scheduled_on_sensor
-    to: "on"
-    id: schedule_window_open
-  - trigger: state
-    entity_id: !input scheduled_on_sensor
-    to: "off"
-    id: schedule_window_close
-  # --- After-hours presence triggers ---
   - trigger: state
     entity_id: !input presence_sensors
     to: "on"
-    id: presence_on
   - trigger: state
     entity_id: !input presence_sensors
     to: "off"
     for:
       minutes: !input presence_off_delay
-    id: presence_off
 
 actions:
+  - variables:
+      hvac_entity: !input hvac_entity
+      scheduled_on_sensor: !input scheduled_on_sensor
+      occupancy_sensor: !input occupancy_sensor
+      presence_sensors: !input presence_sensors
+  - variables:
+      hvac_running: >-
+        {{ state_attr(hvac_entity, 'hvac_action') not in ['idle', none, 'off'] }}
+      scheduled: >-
+        {{ is_state(scheduled_on_sensor, 'on') }}
+      occupied: >-
+        {{ is_state(occupancy_sensor, 'on') }}
+      presence: >-
+        {{ expand(presence_sensors) | selectattr('state', 'eq', 'on') | list | count > 0 }}
+  - variables:
+      want_schedule: "{{ hvac_running and scheduled and occupied }}"
+      want_night_owl: "{{ hvac_running and (not scheduled) and presence }}"
   - choose:
-      # ═══════════════════════════════════════════
-      # DURING SCHEDULED HOURS — HVAC-linked P1-P4
-      # ═══════════════════════════════════════════
-
-      # HVAC starts + in schedule + occupied → restore P1-P4 on device
       - conditions:
-          - condition: trigger
-            id: hvac_on
-          - condition: state
-            entity_id: !input occupancy_sensor
-            state: "on"
-          - condition: state
-            entity_id: !input scheduled_on_sensor
-            state: "on"
+          - condition: template
+            value_template: "{{ want_schedule }}"
         sequence:
           - action: switch.turn_on
             target:
               entity_id: !input schedule_active_switch
-
-      # HVAC goes idle + in schedule → disable P1-P4 on device
-      - conditions:
-          - condition: trigger
-            id: hvac_off
-          - condition: state
-            entity_id: !input scheduled_on_sensor
-            state: "on"
-        sequence:
           - action: switch.turn_off
             target:
-              entity_id: !input schedule_active_switch
-
-      # ═══════════════════════════════════════════
-      # OUTSIDE SCHEDULED HOURS — Night Owl P5
-      # ═══════════════════════════════════════════
-
-      # HVAC starts + outside schedule + presence → enable P5
+              entity_id: !input night_owl_switch
       - conditions:
-          - condition: trigger
-            id: hvac_on
-          - condition: state
-            entity_id: !input scheduled_on_sensor
-            state: "off"
-          - condition: state
-            entity_id: !input presence_sensors
-            match: any
-            state: "on"
+          - condition: template
+            value_template: "{{ want_night_owl }}"
         sequence:
           - action: switch.turn_on
             target:
               entity_id: !input night_owl_switch
-
-      # HVAC goes idle + outside schedule → disable P5
-      - conditions:
-          - condition: trigger
-            id: hvac_off
-          - condition: state
-            entity_id: !input scheduled_on_sensor
-            state: "off"
-        sequence:
-          - action: switch.turn_off
-            target:
-              entity_id: !input night_owl_switch
-
-      # Presence ON + outside schedule + HVAC active → enable P5
-      - conditions:
-          - condition: trigger
-            id: presence_on
-          - condition: state
-            entity_id: !input scheduled_on_sensor
-            state: "off"
-          - condition: not
-            conditions:
-              - condition: state
-                entity_id: !input hvac_entity
-                attribute: hvac_action
-                state: "idle"
-        sequence:
-          - action: switch.turn_on
-            target:
-              entity_id: !input night_owl_switch
-
-      # Presence OFF + outside schedule → disable P5
-      - conditions:
-          - condition: trigger
-            id: presence_off
-          - condition: state
-            entity_id: !input scheduled_on_sensor
-            state: "off"
-        sequence:
-          - action: switch.turn_off
-            target:
-              entity_id: !input night_owl_switch
-
-      # ═══════════════════════════════════════════
-      # SCHEDULE WINDOW TRANSITIONS
-      # ═══════════════════════════════════════════
-
-      # Schedule window opens → disable P5, then enable P1-P4 if HVAC active
-      - conditions:
-          - condition: trigger
-            id: schedule_window_open
-        sequence:
-          - action: switch.turn_off
-            target:
-              entity_id: !input night_owl_switch
-          - choose:
-              - conditions:
-                  - condition: state
-                    entity_id: !input occupancy_sensor
-                    state: "on"
-                  - condition: not
-                    conditions:
-                      - condition: state
-                        entity_id: !input hvac_entity
-                        attribute: hvac_action
-                        state: "idle"
-                sequence:
-                  - action: switch.turn_on
-                    target:
-                      entity_id: !input schedule_active_switch
-
-      # Schedule window closes → disable P1-P4, then enable P5 if presence + HVAC active
-      - conditions:
-          - condition: trigger
-            id: schedule_window_close
-        sequence:
           - action: switch.turn_off
             target:
               entity_id: !input schedule_active_switch
-          - choose:
-              - conditions:
-                  - condition: state
-                    entity_id: !input presence_sensors
-                    match: any
-                    state: "on"
-                  - condition: not
-                    conditions:
-                      - condition: state
-                        entity_id: !input hvac_entity
-                        attribute: hvac_action
-                        state: "idle"
-                sequence:
-                  - action: switch.turn_on
-                    target:
-                      entity_id: !input night_owl_switch
+    default:
+      - action: switch.turn_off
+        target:
+          entity_id: !input schedule_active_switch
+      - action: switch.turn_off
+        target:
+          entity_id: !input night_owl_switch
