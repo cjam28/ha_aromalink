@@ -171,3 +171,16 @@ set_night_owl_active:
     enabled:
       description: "True to enable P5 on the device, false to disable."
       example: true
+
+set_night_owl_day_preference:
+  description: "Set the user's Night Owl preference for specific days. Controls whether the Night Owl automation is eligible to run on those days."
+  fields:
+    device_id:
+      description: "The ID of the device. Required if multiple devices are available."
+      example: "device_12345"
+    days:
+      description: "List of day numbers (0=Sunday, 1=Monday, ..., 6=Saturday) to apply the preference to."
+      example: [0, 1, 2, 3, 4, 5, 6]
+    enabled:
+      description: "True to enable Night Owl for the selected days, false to disable."
+      example: true

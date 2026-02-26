@@ -2,7 +2,7 @@
 import logging
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.const import UnitOfTime
 from homeassistant.util import dt as dt_util
 
@@ -38,6 +38,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 class AromaLinkSensorBase(CoordinatorEntity, SensorEntity):
     """Base class for Aroma-Link sensors."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry, device_id, device_name, sensor_type, icon=None, unit=None):
         """Initialize the sensor."""
@@ -322,8 +324,13 @@ class AromaLinkScheduleMatrixSensor(AromaLinkSensorBase):
                 user_intent = self.coordinator._saved_enabled_state.get(day_num)
                 day_data = {}
                 for prog_num, prog in enumerate(programs, 1):
-                    if user_intent and prog_num <= self.SCHEDULE_PROGRAMS and prog_num - 1 < len(user_intent):
-                        is_enabled = user_intent[prog_num - 1]
+                    if prog_num <= self.SCHEDULE_PROGRAMS:
+                        if user_intent and prog_num - 1 < len(user_intent):
+                            is_enabled = user_intent[prog_num - 1]
+                        else:
+                            is_enabled = prog.get("enabled", 0) == 1
+                    elif prog_num == 5:
+                        is_enabled = self.coordinator.get_night_owl_day(day_num)
                     else:
                         is_enabled = prog.get("enabled", 0) == 1
                     day_data[f"program_{prog_num}"] = {
@@ -344,6 +351,7 @@ class AromaLinkScheduleMatrixSensor(AromaLinkSensorBase):
             "current_program": self.coordinator._current_program,
             "selected_days": self.coordinator._selected_days,
             "device_id": self.coordinator.device_id,
+            "night_owl_per_day": self.coordinator._night_owl_per_day.copy(),
         }
 
 

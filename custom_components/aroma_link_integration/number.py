@@ -187,6 +187,8 @@ class AromaLinkPauseDurationNumber(NumberEntity):
 class AromaLinkProgramWorkDuration(NumberEntity):
     """Program work duration."""
 
+    _attr_entity_category = EntityCategory.CONFIG
+
     def __init__(self, coordinator, entry, device_id, device_name):
         """Initialize."""
         self._coordinator = coordinator
@@ -246,6 +248,8 @@ class AromaLinkProgramWorkDuration(NumberEntity):
 
 class AromaLinkProgramPauseDuration(NumberEntity):
     """Program pause duration."""
+
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, coordinator, entry, device_id, device_name):
         """Initialize."""

@@ -7,7 +7,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
 )
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
@@ -37,6 +37,7 @@ class AromaLinkScheduledOnSensor(CoordinatorEntity, BinarySensorEntity):
     """Binary sensor that is ON when the current time falls within an enabled schedule window."""
 
     _attr_device_class = BinarySensorDeviceClass.RUNNING
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry, device_id, device_name):
         super().__init__(coordinator)

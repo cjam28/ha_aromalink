@@ -72,6 +72,8 @@ class AromaLinkRunButton(ButtonEntity):
 class AromaLinkSaveSettingsButton(ButtonEntity):
     """Representation of an Aroma-Link save settings button."""
 
+    _attr_entity_category = EntityCategory.CONFIG
+
     def __init__(self, coordinator, entry, device_id, device_name):
         """Initialize the button."""
         self._coordinator = coordinator
@@ -117,6 +119,8 @@ class AromaLinkSaveSettingsButton(ButtonEntity):
 
 class AromaLinkSaveProgramButton(CoordinatorEntity, ButtonEntity):
     """Save Program button."""
+
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, coordinator, entry, device_id, device_name):
         """Initialize."""
@@ -254,6 +258,8 @@ class AromaLinkSaveProgramButton(CoordinatorEntity, ButtonEntity):
 
 class AromaLinkSyncSchedulesButton(CoordinatorEntity, ButtonEntity):
     """Sync Schedules with Aroma-Link button."""
+
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, coordinator, entry, device_id, device_name):
         """Initialize."""

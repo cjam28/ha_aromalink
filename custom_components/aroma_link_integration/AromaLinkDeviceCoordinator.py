@@ -80,6 +80,10 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         # Keyed by day number (0-6), value is list of 5 booleans.
         self._saved_enabled_state = {}
 
+        # Per-day Night Owl preference (keyed by day 0-6, boolean).
+        # True = user wants Night Owl available for that day.
+        self._night_owl_per_day = {d: False for d in range(7)}
+
         self._save_oil_state_cb = save_oil_state_cb
 
         if oil_state:
@@ -203,7 +207,24 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                 int(k): v for k, v in saved_enabled.items()
                 if isinstance(v, list)
             }
-    
+
+        night_owl = oil_state.get("night_owl_per_day", {})
+        if isinstance(night_owl, dict):
+            for k, v in night_owl.items():
+                day = int(k)
+                if 0 <= day <= 6 and isinstance(v, bool):
+                    self._night_owl_per_day[day] = v
+
+    def get_night_owl_day(self, day: int) -> bool:
+        """Return Night Owl preference for a given day (0=Sun … 6=Sat)."""
+        return self._night_owl_per_day.get(day, False)
+
+    def set_night_owl_day(self, day: int, enabled: bool):
+        """Set Night Owl preference for a given day and persist."""
+        if 0 <= day <= 6:
+            self._night_owl_per_day[day] = enabled
+            self._request_oil_state_save()
+
     def update_oil_tracking(
         self,
         device_on: bool,
@@ -764,6 +785,7 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "prev_pause_duration": self._prev_pause_duration,
             "calibration": self._oil_calibration.copy(),
             "saved_enabled_state": self._saved_enabled_state.copy(),
+            "night_owl_per_day": self._night_owl_per_day.copy(),
         }
 
     async def fetch_work_time_settings(self, week_day=0):

@@ -1194,6 +1194,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         schema=SET_NIGHT_OWL_ACTIVE_SCHEMA
     )
 
+    async def set_night_owl_day_preference_service(call: ServiceCall):
+        """Set per-day Night Owl preference (called by dashboard card)."""
+        device_id = call.data.get("device_id")
+        days = call.data.get("days", [])
+        enabled = call.data.get("enabled", False)
+
+        coordinator = None
+        if device_id and device_id in device_coordinators:
+            coordinator = device_coordinators[device_id]
+        elif len(device_coordinators) == 1:
+            coordinator = list(device_coordinators.values())[0]
+        else:
+            _LOGGER.error("Multiple devices available, must specify device_id for set_night_owl_day_preference")
+            return
+
+        for day in days:
+            coordinator.set_night_owl_day(int(day), enabled)
+
+        coordinator.async_set_updated_data(coordinator.data)
+        _LOGGER.info("Night Owl day preference set: days=%s enabled=%s device=%s", days, enabled, coordinator.device_id)
+
+    SET_NIGHT_OWL_DAY_PREF_SCHEMA = vol.Schema({
+        vol.Optional("device_id"): cv.string,
+        vol.Required("days"): vol.All(cv.ensure_list, [vol.All(vol.Coerce(int), vol.Range(min=0, max=6))]),
+        vol.Required("enabled"): cv.boolean,
+    })
+
+    hass.services.async_register(
+        DOMAIN,
+        "set_night_owl_day_preference",
+        set_night_owl_day_preference_service,
+        schema=SET_NIGHT_OWL_DAY_PREF_SCHEMA
+    )
+
     # Use the new method
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

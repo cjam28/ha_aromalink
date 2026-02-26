@@ -28,6 +28,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class AromaLinkProgramSelector(CoordinatorEntity, SelectEntity):
     """Program selector entity (1-5)."""
 
+    _attr_entity_category = EntityCategory.CONFIG
+
     def __init__(self, coordinator, entry, device_id, device_name):
         """Initialize the program selector."""
         super().__init__(coordinator)
@@ -80,6 +82,8 @@ class AromaLinkProgramSelector(CoordinatorEntity, SelectEntity):
 
 class AromaLinkProgramLevel(CoordinatorEntity, SelectEntity):
     """Program consistency level."""
+
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, coordinator, entry, device_id, device_name):
         """Initialize."""
@@ -144,6 +148,8 @@ class AromaLinkProgramLevel(CoordinatorEntity, SelectEntity):
 
 class AromaLinkProgramDaySelector(CoordinatorEntity, SelectEntity):
     """Day selector for viewing program schedules."""
+
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, coordinator, entry, device_id, device_name):
         """Initialize the day selector."""

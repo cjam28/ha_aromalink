@@ -9,6 +9,20 @@ blueprint:
   author: cjam28
   source_url: https://raw.githubusercontent.com/cjam28/homeassistant_aroma-link/master/custom_components/aroma_link_integration/blueprints/automation/aroma_link_night_owl.yaml
   input:
+    aroma_device:
+      name: Aroma-Link Device
+      description: >
+        Select your Aroma-Link diffuser device. The Night Owl switch entity
+        is automatically resolved from this device.
+      selector:
+        device:
+          integration: aroma_link_integration
+    scheduled_on_sensor:
+      name: Scheduled On Sensor
+      description: "The Aroma-Link 'Scheduled On' binary sensor (binary_sensor.*_scheduled_on)."
+      selector:
+        entity:
+          domain: binary_sensor
     hvac_entity:
       name: HVAC / Thermostat
       description: The climate entity to monitor.
@@ -24,18 +38,6 @@ blueprint:
         entity:
           domain: binary_sensor
           multiple: true
-    scheduled_on_sensor:
-      name: Scheduled On Sensor
-      description: "The Aroma-Link 'Scheduled On' binary sensor (binary_sensor.*_scheduled_on)."
-      selector:
-        entity:
-          domain: binary_sensor
-    night_owl_switch:
-      name: Night Owl Preference Switch
-      description: "The Aroma-Link 'Night Owl' switch (switch.*_night_owl). User preference — ON means after-hours diffusing is allowed."
-      selector:
-        entity:
-          domain: switch
     hvac_on_delay:
       name: HVAC On Delay
       description: Minutes to wait after the HVAC starts before enabling the diffuser.
@@ -79,10 +81,12 @@ triggers:
 
 actions:
   - variables:
+      aroma_device: !input aroma_device
       hvac_entity: !input hvac_entity
       scheduled_on_sensor: !input scheduled_on_sensor
       presence_sensors: !input presence_sensors
-      night_owl_switch: !input night_owl_switch
+      night_owl_switch: >-
+        {{ device_entities(aroma_device) | select('match', 'switch\\..*_night_owl$') | first }}
   - variables:
       want_night_owl: >-
         {{ state_attr(hvac_entity, 'hvac_action') not in ['idle', none, 'off']

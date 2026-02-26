@@ -16,6 +16,20 @@ blueprint:
   author: cjam28
   source_url: https://raw.githubusercontent.com/cjam28/homeassistant_aroma-link/master/custom_components/aroma_link_integration/blueprints/automation/aroma_link_full.yaml
   input:
+    aroma_device:
+      name: Aroma-Link Device
+      description: >
+        Select your Aroma-Link diffuser device. The Schedule Active and
+        Night Owl entities are automatically resolved from this device.
+      selector:
+        device:
+          integration: aroma_link_integration
+    scheduled_on_sensor:
+      name: Scheduled On Sensor
+      description: "The Aroma-Link 'Scheduled On' binary sensor (binary_sensor.*_scheduled_on)."
+      selector:
+        entity:
+          domain: binary_sensor
     hvac_entity:
       name: HVAC / Thermostat
       description: >
@@ -39,24 +53,6 @@ blueprint:
         entity:
           domain: binary_sensor
           multiple: true
-    scheduled_on_sensor:
-      name: Scheduled On Sensor
-      description: "The Aroma-Link 'Scheduled On' binary sensor (binary_sensor.*_scheduled_on)."
-      selector:
-        entity:
-          domain: binary_sensor
-    schedule_active_switch:
-      name: Schedule Active Switch
-      description: "The Aroma-Link 'Schedule Active' switch (switch.*_schedule_active). Controls P1-P4 on the device."
-      selector:
-        entity:
-          domain: switch
-    night_owl_switch:
-      name: Night Owl Preference Switch
-      description: "The Aroma-Link 'Night Owl' switch (switch.*_night_owl). User preference — ON means after-hours diffusing is allowed."
-      selector:
-        entity:
-          domain: switch
     hvac_on_delay:
       name: HVAC On Delay
       description: Minutes to wait after the HVAC starts before enabling the diffuser.
@@ -102,11 +98,15 @@ triggers:
 
 actions:
   - variables:
+      aroma_device: !input aroma_device
       hvac_entity: !input hvac_entity
       scheduled_on_sensor: !input scheduled_on_sensor
       occupancy_sensor: !input occupancy_sensor
       presence_sensors: !input presence_sensors
-      night_owl_switch: !input night_owl_switch
+      schedule_active_switch: >-
+        {{ device_entities(aroma_device) | select('match', 'switch\\..*_schedule_active$') | first }}
+      night_owl_switch: >-
+        {{ device_entities(aroma_device) | select('match', 'switch\\..*_night_owl$') | first }}
   - variables:
       hvac_running: >-
         {{ state_attr(hvac_entity, 'hvac_action') not in ['idle', none, 'off'] }}
@@ -130,7 +130,7 @@ actions:
         sequence:
           - action: switch.turn_on
             target:
-              entity_id: !input schedule_active_switch
+              entity_id: "{{ schedule_active_switch }}"
           - action: aroma_link_integration.set_night_owl_active
             data:
               device_id: "{{ device_id }}"
@@ -145,11 +145,11 @@ actions:
               enabled: true
           - action: switch.turn_off
             target:
-              entity_id: !input schedule_active_switch
+              entity_id: "{{ schedule_active_switch }}"
     default:
       - action: switch.turn_off
         target:
-          entity_id: !input schedule_active_switch
+          entity_id: "{{ schedule_active_switch }}"
       - action: aroma_link_integration.set_night_owl_active
         data:
           device_id: "{{ device_id }}"

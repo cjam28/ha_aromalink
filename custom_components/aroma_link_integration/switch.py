@@ -1,7 +1,7 @@
 """Switch platform for Aroma-Link."""
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 
 from .const import DOMAIN, CONF_DEVICE_ID
 
@@ -117,6 +117,8 @@ class AromaLinkFanSwitch(CoordinatorEntity, SwitchEntity):
 
 class AromaLinkProgramEnabled(CoordinatorEntity, SwitchEntity):
     """Program enabled/disabled switch."""
+
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, coordinator, entry, device_id, device_name):
         """Initialize."""
@@ -246,15 +248,16 @@ class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
 class AromaLinkNightOwlSwitch(CoordinatorEntity, SwitchEntity):
     """User preference toggle for Night Owl (after-hours) mode.
 
-    ON  = user wants Night Owl automation active (P5 eligible to run)
-    OFF = user has disabled Night Owl (P5 will never be activated)
+    Reflects TODAY's per-day preference stored in the coordinator.
+    ON  = user wants Night Owl automation active today (P5 eligible)
+    OFF = Night Owl disabled for today
 
-    This switch does NOT make API calls. It stores the user's preference
-    which the automation blueprint checks as a condition. The blueprint
-    calls the set_night_owl_active service to control P5 on the device.
+    This switch does NOT make API calls. The automation blueprint reads
+    its state as a condition and uses set_night_owl_active to control P5.
     """
 
     PROGRAM_NUM = 5
+    DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
     def __init__(self, coordinator, entry, device_id, device_name):
         super().__init__(coordinator)
@@ -263,7 +266,6 @@ class AromaLinkNightOwlSwitch(CoordinatorEntity, SwitchEntity):
         self._name = f"{device_name} Night Owl"
         self._unique_id = f"{entry.data['username']}_{device_id}_night_owl"
         self._attr_icon = "mdi:weather-night"
-        self._is_active = False
 
     @property
     def name(self):
@@ -275,7 +277,8 @@ class AromaLinkNightOwlSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def is_on(self):
-        return self._is_active
+        today = self.coordinator._get_today_schedule_day()
+        return self.coordinator.get_night_owl_day(today)
 
     @property
     def device_info(self):
@@ -288,34 +291,43 @@ class AromaLinkNightOwlSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def extra_state_attributes(self):
-        day = self.coordinator._get_today_schedule_day()
-        programs = self.coordinator._schedule_cache.get(day, [])
+        today = self.coordinator._get_today_schedule_day()
+        programs = self.coordinator._schedule_cache.get(today, [])
         p5 = programs[self.PROGRAM_NUM - 1] if len(programs) >= self.PROGRAM_NUM else {}
+        per_day = {
+            self.DAY_NAMES[d]: self.coordinator.get_night_owl_day(d)
+            for d in range(7)
+        }
         return {
-            "schedule_day": day,
+            "schedule_day": today,
             "program": self.PROGRAM_NUM,
             "start_time": p5.get("start_time", "unknown"),
             "end_time": p5.get("end_time", "unknown"),
             "device_id": str(self._device_id),
+            "per_day": per_day,
         }
 
     async def async_turn_on(self, **kwargs):
-        """Enable Night Owl preference (no API call)."""
-        if self._is_active:
+        """Enable Night Owl preference for today (no API call)."""
+        today = self.coordinator._get_today_schedule_day()
+        if self.coordinator.get_night_owl_day(today):
             return
-        self._is_active = True
+        self.coordinator.set_night_owl_day(today, True)
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):
-        """Disable Night Owl preference (no API call)."""
-        if not self._is_active:
+        """Disable Night Owl preference for today (no API call)."""
+        today = self.coordinator._get_today_schedule_day()
+        if not self.coordinator.get_night_owl_day(today):
             return
-        self._is_active = False
+        self.coordinator.set_night_owl_day(today, False)
         self.async_write_ha_state()
 
 
 class AromaLinkProgramDaySwitch(CoordinatorEntity, SwitchEntity):
     """Day selection switch (one per day)."""
+
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, coordinator, entry, device_id, device_name, day_num, day_name):
         """Initialize."""

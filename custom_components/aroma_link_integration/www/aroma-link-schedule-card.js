@@ -1,5 +1,5 @@
 /**
- * Aroma-Link Schedule Card v2.7.1
+ * Aroma-Link Schedule Card v2.8.0
  * 
  * A complete dashboard card for Aroma-Link diffusers including:
  * - Compact manual controls (Power applies work/pause, Fan, Timed Run)
@@ -467,8 +467,9 @@ class AromaLinkScheduleCard extends HTMLElement {
     const stagedData = staged.get(lastSelected);
     
     if (stagedData) {
+      const isP5 = prog === 5;
       this._editorValuesByDevice.set(sensor.deviceName, {
-        enabled: stagedData.enabled,
+        enabled: isP5 ? (stagedData.nightOwlPref ?? false) : stagedData.enabled,
         startTime: stagedData.startTime,
         endTime: stagedData.endTime,
         workSec: stagedData.workSec,
@@ -583,9 +584,9 @@ class AromaLinkScheduleCard extends HTMLElement {
 
       let stagedData;
       if (isNightOwl) {
-        // Night Owl: always disabled on device, times locked to 00:00-23:59
         stagedData = {
           enabled: false,
+          nightOwlPref: editorValues.enabled,
           startTime: '00:00',
           endTime: '23:59',
           workSec: editorValues.workSec,
@@ -701,7 +702,11 @@ class AromaLinkScheduleCard extends HTMLElement {
     const staged = this._getStagedChanges(sensor.deviceName);
     
     if (staged.has(key)) {
-      return { ...staged.get(key), isStaged: true };
+      const data = { ...staged.get(key), isStaged: true };
+      if (prog === 5 && data.nightOwlPref !== undefined) {
+        data.enabled = data.nightOwlPref;
+      }
+      return data;
     }
     
     return { ...this._getCellDataFromMatrix(sensor, day, prog), isStaged: false };
@@ -781,11 +786,34 @@ class AromaLinkScheduleCard extends HTMLElement {
       console.log(`[AromaLink] Using batch service for ${totalDays} day(s)`);
       this._showStatus(`Saving ${totalDays} day(s)...`, false, sensor.deviceName);
 
+      // Collect Night Owl per-day preferences from staged P5 changes before clearing
+      const nightOwlEnableDays = [];
+      const nightOwlDisableDays = [];
+      for (const [key, data] of staged.entries()) {
+        const [dayStr, progStr] = key.split('-');
+        if (parseInt(progStr) === 5 && data.nightOwlPref !== undefined) {
+          if (data.nightOwlPref) nightOwlEnableDays.push(parseInt(dayStr));
+          else nightOwlDisableDays.push(parseInt(dayStr));
+        }
+      }
+
       // FAST: Single service call that batches everything!
       await this._hass.callService('aroma_link_integration', 'save_schedule_batch', {
         device_id: deviceId,
         schedules: schedules
       });
+
+      // Update Night Owl per-day preferences via HA service
+      if (nightOwlEnableDays.length > 0) {
+        await this._hass.callService('aroma_link_integration', 'set_night_owl_day_preference', {
+          device_id: deviceId, days: nightOwlEnableDays, enabled: true
+        });
+      }
+      if (nightOwlDisableDays.length > 0) {
+        await this._hass.callService('aroma_link_integration', 'set_night_owl_day_preference', {
+          device_id: deviceId, days: nightOwlDisableDays, enabled: false
+        });
+      }
       
       // Clear staged changes
       staged.clear();
@@ -1535,9 +1563,8 @@ class AromaLinkScheduleCard extends HTMLElement {
               const timeLocked = multiProgSameDay || nightOwlOnly;
               const timeDisabled = timeLocked ? 'disabled' : '';
               const timeDisabledClass = timeLocked ? 'time-disabled' : '';
-              const enabledLocked = nightOwlOnly;
               let headerNote = '';
-              if (nightOwlOnly) headerNote = '(Night Owl: times locked, always disabled on device)';
+              if (nightOwlOnly) headerNote = '(Night Owl: times locked, checkbox controls automation)';
               else if (hasMixed) headerNote = '(mixed selection includes Night Owl)';
               else if (multiProgSameDay) headerNote = '(times locked)';
               return `
@@ -1551,8 +1578,8 @@ class AromaLinkScheduleCard extends HTMLElement {
               <!-- Row 1: Settings -->
               <div class="editor-row-inline">
                 <label class="toggle-label">
-                  <input type="checkbox" id="enabled-${sensor.deviceName}" data-field="enabled" data-device="${sensor.deviceName}" ${editorValues.enabled && !enabledLocked ? 'checked' : ''} ${enabledLocked ? 'disabled' : ''}>
-                  <span>${nightOwlOnly ? 'Enabled (automation-controlled)' : 'Enabled'}</span>
+                  <input type="checkbox" id="enabled-${sensor.deviceName}" data-field="enabled" data-device="${sensor.deviceName}" ${editorValues.enabled ? 'checked' : ''}>
+                  <span>${nightOwlOnly ? 'Night Owl Active' : 'Enabled'}</span>
                 </label>
                 
                 <div class="time-inputs ${timeDisabledClass}">

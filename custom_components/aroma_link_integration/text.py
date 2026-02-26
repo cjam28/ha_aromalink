@@ -27,6 +27,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class AromaLinkProgramStartTime(CoordinatorEntity, TextEntity):
     """Program start time (HH:MM format)."""
 
+    _attr_entity_category = EntityCategory.CONFIG
+
     def __init__(self, coordinator, entry, device_id, device_name):
         """Initialize."""
         super().__init__(coordinator)
@@ -87,6 +89,8 @@ class AromaLinkProgramStartTime(CoordinatorEntity, TextEntity):
 
 class AromaLinkProgramEndTime(CoordinatorEntity, TextEntity):
     """Program end time (HH:MM format)."""
+
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, coordinator, entry, device_id, device_name):
         """Initialize."""
