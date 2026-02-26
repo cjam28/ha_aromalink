@@ -5,6 +5,9 @@ blueprint:
     of scheduled hours, HVAC is running, and the user has Night Owl enabled.
     The Night Owl switch is a user preference — the automation controls P5
     on the device via a service call without toggling the switch.
+
+    All Aroma-Link entities (Night Owl, Scheduled On) are automatically
+    resolved from the selected device.
   domain: automation
   author: cjam28
   source_url: https://raw.githubusercontent.com/cjam28/homeassistant_aroma-link/master/custom_components/aroma_link_integration/blueprints/automation/aroma_link_night_owl.yaml
@@ -12,17 +15,11 @@ blueprint:
     aroma_device:
       name: Aroma-Link Device
       description: >
-        Select your Aroma-Link diffuser device. The Night Owl switch entity
-        is automatically resolved from this device.
+        Select your Aroma-Link diffuser device. All Aroma-Link entities
+        (Night Owl, Scheduled On) are automatically resolved from this device.
       selector:
         device:
           integration: aroma_link_integration
-    scheduled_on_sensor:
-      name: Scheduled On Sensor
-      description: "The Aroma-Link 'Scheduled On' binary sensor (binary_sensor.*_scheduled_on)."
-      selector:
-        entity:
-          domain: binary_sensor
     hvac_entity:
       name: HVAC / Thermostat
       description: The climate entity to monitor.
@@ -83,10 +80,11 @@ actions:
   - variables:
       aroma_device: !input aroma_device
       hvac_entity: !input hvac_entity
-      scheduled_on_sensor: !input scheduled_on_sensor
       presence_sensors: !input presence_sensors
       night_owl_switch: >-
         {{ device_entities(aroma_device) | select('match', 'switch\\..*_night_owl$') | first }}
+      scheduled_on_sensor: >-
+        {{ device_entities(aroma_device) | select('match', 'binary_sensor\\..*_scheduled_on$') | first }}
   - variables:
       want_night_owl: >-
         {{ state_attr(hvac_entity, 'hvac_action') not in ['idle', none, 'off']
