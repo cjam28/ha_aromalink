@@ -60,8 +60,10 @@ triggers:
     entity_id: !input hvac_entity
     attribute: hvac_action
     to: "idle"
-  - trigger: state
-    entity_id: "{{ _scheduled_on_sensor }}"
+  - trigger: template
+    value_template: "{{ is_state(_scheduled_on_sensor, 'on') }}"
+  - trigger: template
+    value_template: "{{ is_state(_scheduled_on_sensor, 'off') }}"
 
 actions:
   - variables:
