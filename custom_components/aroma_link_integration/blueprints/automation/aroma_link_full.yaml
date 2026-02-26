@@ -13,6 +13,9 @@ blueprint:
     controls P5 on the device via a service call, not by toggling
     the switch itself.
 
+    Also triggers after a dashboard schedule sync so the automation can
+    immediately enforce HVAC/occupancy logic on any newly-enabled program.
+
     All Aroma-Link entities (Schedule Active, Night Owl, Scheduled On)
     are automatically resolved from the selected device.
   domain: automation
@@ -92,6 +95,8 @@ triggers:
     value_template: "{{ is_state(_scheduled_on_sensor, 'on') }}"
   - trigger: template
     value_template: "{{ is_state(_scheduled_on_sensor, 'off') }}"
+  - trigger: event
+    event_type: aroma_link_integration_schedule_synced
   - trigger: state
     entity_id: !input presence_sensors
     to: "on"

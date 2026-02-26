@@ -6,6 +6,9 @@ blueprint:
     The Night Owl switch is a user preference — the automation controls P5
     on the device via a service call without toggling the switch.
 
+    Also triggers after a dashboard schedule sync so the automation can
+    immediately enforce HVAC/occupancy logic on any newly-enabled program.
+
     All Aroma-Link entities (Night Owl, Scheduled On) are automatically
     resolved from the selected device.
   domain: automation
@@ -75,6 +78,8 @@ triggers:
     to: "off"
     for:
       minutes: !input presence_off_delay
+  - trigger: event
+    event_type: aroma_link_integration_schedule_synced
 
 actions:
   - variables:

@@ -5,6 +5,9 @@ blueprint:
     heating/cooling during scheduled hours and someone is home. Uses an
     evaluate-and-set pattern — every trigger re-checks the current state.
 
+    Also triggers after a dashboard schedule sync so the automation can
+    immediately enforce HVAC/occupancy logic on any newly-enabled program.
+
     All Aroma-Link entities (Schedule Active, Scheduled On) are
     automatically resolved from the selected device.
   domain: automation
@@ -64,6 +67,8 @@ triggers:
     value_template: "{{ is_state(_scheduled_on_sensor, 'on') }}"
   - trigger: template
     value_template: "{{ is_state(_scheduled_on_sensor, 'off') }}"
+  - trigger: event
+    event_type: aroma_link_integration_schedule_synced
 
 actions:
   - variables:

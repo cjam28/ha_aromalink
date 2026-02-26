@@ -876,6 +876,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         coordinator.update_user_intent(force=True)
 
         _LOGGER.info(f"Batch save complete: {success_count}/{total_days} days saved")
+
+        hass.bus.async_fire(
+            f"{DOMAIN}_schedule_synced",
+            {"device_id": coordinator.device_id},
+        )
+
         return {"success": True, "days_saved": success_count, "api_calls": len(schedule_groups)}
     
     SAVE_SCHEDULE_BATCH_SCHEMA = vol.Schema({
