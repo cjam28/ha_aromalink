@@ -893,6 +893,7 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                 self._schedule_cache[day] = result
         
         _LOGGER.info(f"Fetched all schedules for device {self.device_id}: {len(self._schedule_cache)} days cached")
+        self.update_user_intent()
         return self._schedule_cache.copy()
 
     def get_schedule_matrix(self):
@@ -1274,26 +1275,34 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
 
         return await self.set_workset([day], api_programs, skip_refresh=True, updated_cache_data=updated_cache)
 
-    def update_user_intent(self, day=None):
+    def update_user_intent(self, day=None, force=False):
         """Capture the user's intended P1-P4 enabled states from the cache.
 
-        Call this after the user explicitly saves their schedule so the
-        automation restore logic uses the correct baseline.
+        Only fills in days whose intent hasn't been captured yet, unless
+        force=True (used when the user explicitly saves schedule changes
+        from the dashboard card).  This prevents automation-driven
+        enabled/disabled toggles from overwriting the real user intent.
         """
         SCHEDULE_PROGRAMS = 4
+        changed = False
         if day is not None:
-            programs = self._schedule_cache.get(day, [])
-            if programs:
-                self._saved_enabled_state[day] = [
-                    p.get("enabled", 0) == 1 for p in programs[:SCHEDULE_PROGRAMS]
-                ]
-        else:
-            for d, programs in self._schedule_cache.items():
+            if force or day not in self._saved_enabled_state:
+                programs = self._schedule_cache.get(day, [])
                 if programs:
-                    self._saved_enabled_state[d] = [
+                    self._saved_enabled_state[day] = [
                         p.get("enabled", 0) == 1 for p in programs[:SCHEDULE_PROGRAMS]
                     ]
-        self._request_oil_state_save()
+                    changed = True
+        else:
+            for d, programs in self._schedule_cache.items():
+                if force or d not in self._saved_enabled_state:
+                    if programs:
+                        self._saved_enabled_state[d] = [
+                            p.get("enabled", 0) == 1 for p in programs[:SCHEDULE_PROGRAMS]
+                        ]
+                        changed = True
+        if changed:
+            self._request_oil_state_save()
 
     def get_device_info(self):
         """Get device info for entity setup."""

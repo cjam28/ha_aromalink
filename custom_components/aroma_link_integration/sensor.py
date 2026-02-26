@@ -302,20 +302,32 @@ class AromaLinkScheduleMatrixSensor(AromaLinkSensorBase):
         """Return number of days with cached schedules."""
         return len(self.coordinator._schedule_cache)
 
+    SCHEDULE_PROGRAMS = 4
+
     @property
     def extra_state_attributes(self):
-        """Return the full schedule matrix as attributes."""
+        """Return the full schedule matrix as attributes.
+
+        For P1-P4, uses _saved_enabled_state (user intent) so the card
+        shows green blocks even when the automation has temporarily
+        disabled programs on the device.
+        """
         day_names = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
         matrix = {}
-        
+
         for day_num in range(7):
             day_name = day_names[day_num]
             if day_num in self.coordinator._schedule_cache:
                 programs = self.coordinator._schedule_cache[day_num]
+                user_intent = self.coordinator._saved_enabled_state.get(day_num)
                 day_data = {}
                 for prog_num, prog in enumerate(programs, 1):
+                    if user_intent and prog_num <= self.SCHEDULE_PROGRAMS and prog_num - 1 < len(user_intent):
+                        is_enabled = user_intent[prog_num - 1]
+                    else:
+                        is_enabled = prog.get("enabled", 0) == 1
                     day_data[f"program_{prog_num}"] = {
-                        "enabled": prog.get("enabled", 0) == 1,
+                        "enabled": is_enabled,
                         "start": prog.get("start_time", "00:00"),
                         "end": prog.get("end_time", "23:59"),
                         "work": prog.get("work_sec", 10),
@@ -325,7 +337,7 @@ class AromaLinkScheduleMatrixSensor(AromaLinkSensorBase):
                 matrix[day_name] = day_data
             else:
                 matrix[day_name] = None
-        
+
         return {
             "matrix": matrix,
             "current_day": self.coordinator._current_day,

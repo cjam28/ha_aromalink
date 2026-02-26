@@ -106,6 +106,11 @@ class AromaLinkScheduledOnSensor(CoordinatorEntity, BinarySensorEntity):
     def _get_active_programs(self):
         """Return list of P1-P4 programs whose time window covers the current time.
 
+        Uses _saved_enabled_state (user intent) to decide which programs count
+        as "enabled", so the sensor stays accurate even when the automation has
+        temporarily disabled programs on the device.  Falls back to the cache's
+        enabled flag if user intent hasn't been captured yet.
+
         P5 (Night Owl) is excluded because it uses a 00:00-23:59 window
         and is toggled by automations, not the schedule.
         """
@@ -118,11 +123,18 @@ class AromaLinkScheduledOnSensor(CoordinatorEntity, BinarySensorEntity):
         if not programs:
             return []
 
+        user_intent = self.coordinator._saved_enabled_state.get(schedule_day)
+
         current_minutes = now.hour * 60 + now.minute
         active = []
 
         for idx, prog in enumerate(programs[:self.SCHEDULE_PROGRAMS], 1):
-            if prog.get("enabled", 0) != 1:
+            if user_intent and idx - 1 < len(user_intent):
+                is_enabled = user_intent[idx - 1]
+            else:
+                is_enabled = prog.get("enabled", 0) == 1
+
+            if not is_enabled:
                 continue
 
             start_str = prog.get("start_time", "00:00")

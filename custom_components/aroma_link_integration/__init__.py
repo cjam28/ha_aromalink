@@ -700,6 +700,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         result = await coordinator.set_workset(week_days, work_time_list)
         if result:
             _LOGGER.info(f"Saved workset for device {coordinator.device_id} to days {week_days}")
+            for d in week_days:
+                coordinator.update_user_intent(day=d, force=True)
         else:
             _LOGGER.error(f"Failed to save workset for device {coordinator.device_id}")
 
@@ -871,7 +873,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         # Single refresh at end
         await coordinator.async_request_refresh()
         await coordinator.async_fetch_all_schedules()
-        
+        coordinator.update_user_intent(force=True)
+
         _LOGGER.info(f"Batch save complete: {success_count}/{total_days} days saved")
         return {"success": True, "days_saved": success_count, "api_calls": len(schedule_groups)}
     
