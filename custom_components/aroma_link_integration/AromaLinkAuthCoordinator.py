@@ -4,14 +4,16 @@ import time
 import ssl
 from contextlib import asynccontextmanager
 from datetime import timedelta
+from yarl import URL
 
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import aiohttp
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN, VERIFY_SSL
 
 _LOGGER = logging.getLogger(__name__)
+
+AROMA_BASE = "https://www.aroma-link.com"
 
 
 class AromaLinkAuthCoordinator(DataUpdateCoordinator):
@@ -24,23 +26,28 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         self.password = password
         self.jsessionid = None
         self.language_code = "EN"
-        self.session = async_get_clientsession(hass)
         self._last_login_time = 0
         self.verify_ssl = verify_ssl
         self.allow_ssl_fallback = allow_ssl_fallback
         self._ssl_fallback_notified = False
 
+        jar = aiohttp.CookieJar(unsafe=True)
+        self.session = aiohttp.ClientSession(cookie_jar=jar)
+
         super().__init__(
             hass,
             _LOGGER,
             name=f"{DOMAIN}_auth",
-            # Check auth every 15 minutes
             update_interval=timedelta(minutes=15),
         )
 
+    async def async_close(self):
+        """Close the dedicated HTTP session."""
+        if self.session and not self.session.closed:
+            await self.session.close()
+
     async def _async_update_data(self):
         """Fetch authentication data."""
-        # Simply ensure login is valid
         await self._ensure_login()
         return {"jsessionid": self.jsessionid, "last_login": self._last_login_time}
 
@@ -93,7 +100,6 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         current_time = time.time()
         session_age = current_time - self._last_login_time
 
-        # 20 min or temp ID
         if self.jsessionid is None or self.jsessionid.startswith("temp_") or session_age > 1200:
             _LOGGER.debug(
                 "Session expired, temporary, or not established. Attempting login.")
@@ -106,20 +112,27 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
 
     async def _login(self):
         """Login to Aroma-Link and get session ID."""
-        login_url = "https://www.aroma-link.com/login"
+        login_url = f"{AROMA_BASE}/login"
         data = {"username": self.username, "password": self.password}
         headers = {
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://www.aroma-link.com",
-            "Referer": "https://www.aroma-link.com/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            "Origin": AROMA_BASE,
+            "Referer": f"{AROMA_BASE}/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         }
 
         try:
+            self.session.cookie_jar.clear()
+
+            self.session.cookie_jar.update_cookies(
+                {"languagecode": self.language_code},
+                URL(AROMA_BASE),
+            )
+
             _LOGGER.debug(
                 "Attempting initial GET to aroma-link.com for cookies.")
-            async with self.request("get", "https://www.aroma-link.com/", timeout=10) as initial_response:
+            async with self.request("get", f"{AROMA_BASE}/", timeout=10) as initial_response:
                 initial_response.raise_for_status()
                 _LOGGER.debug(
                     f"Initial GET successful (status {initial_response.status}).")
@@ -129,6 +142,12 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
             async with self.request("post", login_url, data=data, headers=headers, timeout=10) as response:
                 response_text = await response.text()
                 _LOGGER.debug(f"Login response status: {response.status}")
+
+                all_cookies = {
+                    c.key: c.value
+                    for c in self.session.cookie_jar
+                }
+                _LOGGER.debug("Cookies after login: %s", list(all_cookies.keys()))
 
                 if response.status == 200:
                     jsessionid_found = await self._extract_jsessionid(response, response_text)
@@ -158,7 +177,6 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         """Extract JSESSIONID from various sources."""
         jsessionid = None
 
-        # Method 1: Try to get JSESSIONID from cookie jar
         filtered_cookies = self.session.cookie_jar.filter_cookies(response.url)
 
         if "JSESSIONID" in filtered_cookies:
@@ -168,7 +186,6 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
                 f"Found JSESSIONID in cookie jar: {jsessionid[:5]}...")
             return jsessionid
 
-        # Method 2: If not found in jar, check response headers
         if 'Set-Cookie' in response.headers:
             cookie_header = response.headers['Set-Cookie']
             if 'JSESSIONID=' in cookie_header:
@@ -179,12 +196,15 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
                     jsessionid = cookie_header[start:end]
                     _LOGGER.debug(
                         f"Extracted JSESSIONID from header: {jsessionid[:5]}...")
+                    self.session.cookie_jar.update_cookies(
+                        {"JSESSIONID": jsessionid},
+                        URL(AROMA_BASE),
+                    )
                     return jsessionid
                 except Exception as e:
                     _LOGGER.error(
                         f"Error extracting JSESSIONID from header: {e}")
 
-        # Method 3: Check if login was successful from response text
         if "success" in response_text.lower():
             _LOGGER.warning(
                 "Login appears successful based on response text, but no JSESSIONID found. Using temporary ID.")

@@ -296,7 +296,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
+        entry_data = hass.data[DOMAIN].pop(entry.entry_id, {})
+        auth_coordinator = entry_data.get("auth_coordinator")
+        if auth_coordinator:
+            await auth_coordinator.async_close()
 
     return unload_ok
 

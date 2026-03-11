@@ -791,7 +791,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
     async def fetch_work_time_settings(self, week_day=0):
         """Fetch current work time settings from API."""
         await self.auth_coordinator._ensure_login()
-        jsessionid = self.auth_coordinator.jsessionid
 
         url = f"https://www.aroma-link.com/device/workTime/{self.device_id}?week={week_day}"
 
@@ -800,9 +799,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
-
-        if jsessionid and not jsessionid.startswith("temp_"):
-            headers["Cookie"] = f"languagecode={self.auth_coordinator.language_code}; JSESSIONID={jsessionid}"
 
         try:
             _LOGGER.debug(
@@ -968,7 +964,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             work_sec, pause_sec, level, setting_id. Returns None on error.
         """
         await self.auth_coordinator._ensure_login()
-        jsessionid = self.auth_coordinator.jsessionid
 
         url = f"https://www.aroma-link.com/device/workTime/{self.device_id}?week={week_day}"
 
@@ -977,9 +972,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
-
-        if jsessionid and not jsessionid.startswith("temp_"):
-            headers["Cookie"] = f"languagecode={self.auth_coordinator.language_code}; JSESSIONID={jsessionid}"
 
         try:
             _LOGGER.debug(
@@ -1081,13 +1073,11 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             True if successful, False otherwise
         """
         await self.auth_coordinator._ensure_login()
-        jsessionid = self.auth_coordinator.jsessionid
 
         url = "https://www.aroma-link.com/device/workSet"
 
         # Ensure we have exactly 5 programs
         if len(work_time_list) < 5:
-            # Pad with disabled programs
             work_time_list = list(work_time_list)
             while len(work_time_list) < 5:
                 work_time_list.append({
@@ -1114,9 +1104,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
-
-        if jsessionid and not jsessionid.startswith("temp_"):
-            headers["Cookie"] = f"languagecode={self.auth_coordinator.language_code}; JSESSIONID={jsessionid}"
 
         try:
             _LOGGER.debug(
@@ -1335,9 +1322,7 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self):
         """Fetch current device state from API."""
-        # Ensure auth is valid
         await self.auth_coordinator._ensure_login()
-        jsessionid = self.auth_coordinator.jsessionid
 
         url = f"https://www.aroma-link.com/device/deviceInfo/now/{self.device_id}?timeout=1000"
 
@@ -1346,10 +1331,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
-
-        # Only add Cookie header if we have a valid JSESSIONID
-        if jsessionid and not jsessionid.startswith("temp_"):
-            headers["Cookie"] = f"languagecode={self.auth_coordinator.language_code}; JSESSIONID={jsessionid}"
 
         try:
             _LOGGER.debug(
@@ -1444,18 +1425,12 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
     async def api_request(self, url, method="GET", params=None, data=None, json_body=None):
         """Make an authenticated API request for diagnostics/testing."""
         await self.auth_coordinator._ensure_login()
-        jsessionid = self.auth_coordinator.jsessionid
 
         headers = {
             "X-Requested-With": "XMLHttpRequest",
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
-
-        if jsessionid and not jsessionid.startswith("temp_"):
-            headers["Cookie"] = (
-                f"languagecode={self.auth_coordinator.language_code}; JSESSIONID={jsessionid}"
-            )
 
         if json_body is not None:
             headers["Content-Type"] = "application/json"
@@ -1491,7 +1466,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
     async def turn_on_off(self, state_to_set):
         """Turn the diffuser on or off."""
         await self.auth_coordinator._ensure_login()
-        jsessionid = self.auth_coordinator.jsessionid
 
         url = "https://www.aroma-link.com/device/switch"
 
@@ -1506,9 +1480,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
-
-        if jsessionid and not jsessionid.startswith("temp_"):
-            headers["Cookie"] = f"languagecode={self.auth_coordinator.language_code}; JSESSIONID={jsessionid}"
 
         try:
             _LOGGER.debug(
@@ -1550,7 +1521,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
     async def fan_control(self, state_to_set):
         """Turn the fan on or off."""
         await self.auth_coordinator._ensure_login()
-        jsessionid = self.auth_coordinator.jsessionid
 
         url = "https://www.aroma-link.com/device/switch"
 
@@ -1565,9 +1535,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
-
-        if jsessionid and not jsessionid.startswith("temp_"):
-            headers["Cookie"] = f"languagecode={self.auth_coordinator.language_code}; JSESSIONID={jsessionid}"
 
         try:
             _LOGGER.debug(
@@ -1609,7 +1576,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
     async def set_scheduler(self, work_duration=None, pause_duration=None, week_days=None):
         """Set the scheduler for the diffuser."""
         await self.auth_coordinator._ensure_login()
-        jsessionid = self.auth_coordinator.jsessionid
 
         url = "https://www.aroma-link.com/device/workSet"
 
@@ -1674,9 +1640,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
-
-        if jsessionid and not jsessionid.startswith("temp_"):
-            headers["Cookie"] = f"languagecode={self.auth_coordinator.language_code}; JSESSIONID={jsessionid}"
 
         try:
             _LOGGER.debug(
