@@ -1333,10 +1333,12 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         }
 
         try:
+            jar_cookies = {c.key: c.value[:8] + "..." for c in self.auth_coordinator.session.cookie_jar}
             _LOGGER.debug(
-                "Fetching device info for device %s (url=%s)",
+                "Fetching device info for device %s (url=%s, cookies=%s)",
                 self.device_id,
                 url,
+                jar_cookies,
             )
             async with self.auth_coordinator.request(
                 "get",
@@ -1409,8 +1411,16 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                             f"API error for device {self.device_id}: {error_msg}")
                         raise UpdateFailed(f"API error: {error_msg}")
                 elif response.status in [401, 403]:
+                    resp_body = await response.text()
+                    resp_hdrs = dict(response.headers)
                     _LOGGER.warning(
-                        f"Authentication error ({response.status}) for device {self.device_id}. Forcing re-login.")
+                        "Authentication error (%s) for device %s. "
+                        "Response body (first 500): %s | Response headers: %s",
+                        response.status,
+                        self.device_id,
+                        resp_body[:500],
+                        resp_hdrs,
+                    )
                     self.auth_coordinator.jsessionid = None
                     raise UpdateFailed(f"Authentication error")
                 else:

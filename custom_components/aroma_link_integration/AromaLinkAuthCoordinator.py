@@ -142,6 +142,8 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
             async with self.request("post", login_url, data=data, headers=headers, timeout=10) as response:
                 response_text = await response.text()
                 _LOGGER.debug(f"Login response status: {response.status}")
+                _LOGGER.debug("Login response body (first 300): %s", response_text[:300])
+                _LOGGER.debug("Login response headers: %s", dict(response.headers))
 
                 all_cookies = {
                     c.key: c.value
