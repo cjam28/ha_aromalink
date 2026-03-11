@@ -175,16 +175,20 @@ async def _register_lovelace_resource(hass: HomeAssistant):
     www_path = os.path.join(os.path.dirname(__file__), "www")
     card_file = "aroma-link-schedule-card.js"
     card_path = os.path.join(www_path, card_file)
-    
-    if not os.path.exists(card_path):
+
+    def _compute_hash():
+        if not os.path.exists(card_path):
+            return None
+        with open(card_path, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()[:8]
+
+    file_hash = await hass.async_add_executor_job(_compute_hash)
+    if file_hash is None:
         return
-    
-    with open(card_path, "rb") as f:
-        file_hash = hashlib.md5(f.read()).hexdigest()[:8]
-    
+
     url_path = f"/aroma_link_integration/{card_file}"
     versioned_url = f"{url_path}?v={file_hash}"
-    
+
     try:
         await _add_lovelace_resource(hass, versioned_url)
     except Exception as e:

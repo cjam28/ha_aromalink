@@ -32,7 +32,16 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         self._ssl_fallback_notified = False
 
         jar = aiohttp.CookieJar(unsafe=True)
-        self.session = aiohttp.ClientSession(cookie_jar=jar)
+        self.session = aiohttp.ClientSession(
+            cookie_jar=jar,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
+            },
+        )
 
         super().__init__(
             hass,
@@ -159,6 +168,11 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
                         self._last_login_time = time.time()
                         _LOGGER.info(
                             f"Successfully logged in as {self.username}.")
+
+                        # Navigate to the device list page to establish server-side
+                        # session context (mirrors what a browser does after login).
+                        await self._warm_up_session()
+
                         return True
                     else:
                         _LOGGER.error(
@@ -174,6 +188,37 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         except Exception as e:
             _LOGGER.error(f"Login error: {e}", exc_info=True)
             return False
+
+    async def _warm_up_session(self):
+        """Navigate to the device list page after login.
+
+        The Aroma-Link server requires a page navigation after login before
+        API calls will succeed (sets server-side session context / additional
+        cookies).  This mirrors what the browser does.
+        """
+        try:
+            warmup_headers = {
+                "Referer": f"{AROMA_BASE}/",
+                "Cookie": self.get_cookie_header(),
+            }
+            async with self.request(
+                "get",
+                f"{AROMA_BASE}/device/list",
+                headers=warmup_headers,
+                timeout=10,
+            ) as resp:
+                _LOGGER.debug(
+                    "Session warm-up GET /device/list status: %s", resp.status
+                )
+        except Exception as exc:
+            _LOGGER.debug("Session warm-up failed (non-fatal): %s", exc)
+
+    def get_cookie_header(self):
+        """Return an explicit Cookie header value for authenticated requests."""
+        parts = [f"languagecode={self.language_code}"]
+        if self.jsessionid and not self.jsessionid.startswith("temp_"):
+            parts.append(f"JSESSIONID={self.jsessionid}")
+        return "; ".join(parts)
 
     async def _extract_jsessionid(self, response, response_text):
         """Extract JSESSIONID from various sources."""
