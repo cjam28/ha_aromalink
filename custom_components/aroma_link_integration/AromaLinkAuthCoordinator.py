@@ -4,9 +4,8 @@ import time
 import ssl
 from contextlib import asynccontextmanager
 from datetime import timedelta
-from yarl import URL
-
 import aiohttp
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN, VERIFY_SSL
@@ -14,6 +13,12 @@ from .const import DOMAIN, VERIFY_SSL
 _LOGGER = logging.getLogger(__name__)
 
 AROMA_BASE = "https://www.aroma-link.com"
+
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
 
 
 class AromaLinkAuthCoordinator(DataUpdateCoordinator):
@@ -31,17 +36,7 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         self.allow_ssl_fallback = allow_ssl_fallback
         self._ssl_fallback_notified = False
 
-        jar = aiohttp.CookieJar(unsafe=True)
-        self.session = aiohttp.ClientSession(
-            cookie_jar=jar,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                ),
-            },
-        )
+        self.session = async_get_clientsession(hass)
 
         super().__init__(
             hass,
@@ -51,9 +46,7 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         )
 
     async def async_close(self):
-        """Close the dedicated HTTP session."""
-        if self.session and not self.session.closed:
-            await self.session.close()
+        """Nothing to close -- we use the shared HA session."""
 
     async def _async_update_data(self):
         """Fetch authentication data."""
@@ -82,8 +75,16 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
 
     @asynccontextmanager
     async def request(self, method, url, **kwargs):
-        """Request wrapper with optional SSL fallback."""
+        """Request wrapper that injects auth cookies and User-Agent."""
         ssl_opt = kwargs.pop("ssl", self.verify_ssl)
+
+        hdrs = dict(kwargs.pop("headers", None) or {})
+        hdrs.setdefault("User-Agent", _BROWSER_UA)
+        cookie_val = self.get_cookie_header()
+        if cookie_val:
+            hdrs["Cookie"] = cookie_val
+        kwargs["headers"] = hdrs
+
         try:
             async with self.session.request(
                 method, url, ssl=ssl_opt, **kwargs
@@ -121,6 +122,7 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
 
     async def _login(self):
         """Login to Aroma-Link and get session ID."""
+        self.jsessionid = None
         login_url = f"{AROMA_BASE}/login"
         data = {"username": self.username, "password": self.password}
         headers = {
@@ -128,51 +130,46 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
             "X-Requested-With": "XMLHttpRequest",
             "Origin": AROMA_BASE,
             "Referer": f"{AROMA_BASE}/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         }
 
         try:
-            self.session.cookie_jar.clear()
-
-            self.session.cookie_jar.update_cookies(
-                {"languagecode": self.language_code},
-                URL(AROMA_BASE),
-            )
-
             _LOGGER.debug(
                 "Attempting initial GET to aroma-link.com for cookies.")
-            async with self.request("get", f"{AROMA_BASE}/", timeout=10) as initial_response:
+            async with self.session.get(
+                f"{AROMA_BASE}/",
+                headers={"User-Agent": _BROWSER_UA},
+                ssl=self.verify_ssl,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as initial_response:
                 initial_response.raise_for_status()
                 _LOGGER.debug(
-                    f"Initial GET successful (status {initial_response.status}).")
+                    "Initial GET successful (status %s).", initial_response.status)
+
+                jsessionid = self._cookie_from_jar("JSESSIONID", initial_response.url)
+                if jsessionid:
+                    self.jsessionid = jsessionid
+                    _LOGGER.debug("Got JSESSIONID from initial GET: %s...", jsessionid[:5])
 
             _LOGGER.debug(
-                f"Attempting login to {login_url} as {self.username}.")
+                "Attempting login to %s as %s.", login_url, self.username)
             async with self.request("post", login_url, data=data, headers=headers, timeout=10) as response:
                 response_text = await response.text()
-                _LOGGER.debug(f"Login response status: {response.status}")
+                _LOGGER.debug("Login response status: %s", response.status)
                 _LOGGER.debug("Login response body (first 300): %s", response_text[:300])
                 _LOGGER.debug("Login response headers: %s", dict(response.headers))
 
-                all_cookies = {
-                    c.key: c.value
-                    for c in self.session.cookie_jar
-                }
-                _LOGGER.debug("Cookies after login: %s", list(all_cookies.keys()))
-
                 if response.status == 200:
-                    jsessionid_found = await self._extract_jsessionid(response, response_text)
+                    new_jsessionid = self._cookie_from_jar("JSESSIONID", response.url)
+                    if new_jsessionid:
+                        self.jsessionid = new_jsessionid
 
-                    if jsessionid_found:
-                        self.jsessionid = jsessionid_found
+                    if self.jsessionid:
+                        _LOGGER.debug("JSESSIONID: %s...", self.jsessionid[:5])
                         self._last_login_time = time.time()
                         _LOGGER.info(
-                            f"Successfully logged in as {self.username}.")
+                            "Successfully logged in as %s.", self.username)
 
-                        # Navigate to the device list page to establish server-side
-                        # session context (mirrors what a browser does after login).
                         await self._warm_up_session()
-
                         return True
                     else:
                         _LOGGER.error(
@@ -180,13 +177,13 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
                         return False
                 else:
                     _LOGGER.error(
-                        f"Login failed with status code: {response.status}.")
+                        "Login failed with status code: %s.", response.status)
                     return False
         except asyncio.TimeoutError:
             _LOGGER.error("Timeout during login process.")
             return False
         except Exception as e:
-            _LOGGER.error(f"Login error: {e}", exc_info=True)
+            _LOGGER.error("Login error: %s", e, exc_info=True)
             return False
 
     async def _warm_up_session(self):
@@ -220,42 +217,12 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
             parts.append(f"JSESSIONID={self.jsessionid}")
         return "; ".join(parts)
 
-    async def _extract_jsessionid(self, response, response_text):
-        """Extract JSESSIONID from various sources."""
-        jsessionid = None
-
-        filtered_cookies = self.session.cookie_jar.filter_cookies(response.url)
-
-        if "JSESSIONID" in filtered_cookies:
-            jsessionid_morsel = filtered_cookies["JSESSIONID"]
-            jsessionid = jsessionid_morsel.value
-            _LOGGER.debug(
-                f"Found JSESSIONID in cookie jar: {jsessionid[:5]}...")
-            return jsessionid
-
-        if 'Set-Cookie' in response.headers:
-            cookie_header = response.headers['Set-Cookie']
-            if 'JSESSIONID=' in cookie_header:
-                try:
-                    start = cookie_header.index('JSESSIONID=') + 11
-                    end = cookie_header.index(
-                        ';', start) if ';' in cookie_header[start:] else len(cookie_header)
-                    jsessionid = cookie_header[start:end]
-                    _LOGGER.debug(
-                        f"Extracted JSESSIONID from header: {jsessionid[:5]}...")
-                    self.session.cookie_jar.update_cookies(
-                        {"JSESSIONID": jsessionid},
-                        URL(AROMA_BASE),
-                    )
-                    return jsessionid
-                except Exception as e:
-                    _LOGGER.error(
-                        f"Error extracting JSESSIONID from header: {e}")
-
-        if "success" in response_text.lower():
-            _LOGGER.warning(
-                "Login appears successful based on response text, but no JSESSIONID found. Using temporary ID.")
-            jsessionid = f"temp_login_success_{time.time()}"
-            return jsessionid
-
+    def _cookie_from_jar(self, name, url):
+        """Read a single cookie from the shared session's cookie jar."""
+        try:
+            filtered = self.session.cookie_jar.filter_cookies(url)
+            if name in filtered:
+                return filtered[name].value
+        except Exception:
+            pass
         return None
