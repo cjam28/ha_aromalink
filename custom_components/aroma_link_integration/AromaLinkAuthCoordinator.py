@@ -38,6 +38,9 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         self._ssl_fallback_notified = False
 
         self.session = async_get_clientsession(hass)
+        # Cookie names that belong to aroma-link (populated during login).
+        # Used to build Cookie headers without leaking other integrations' cookies.
+        self._aroma_cookie_names: set[str] = {"languagecode"}
 
         super().__init__(
             hass,
@@ -76,25 +79,30 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
 
     @asynccontextmanager
     async def request(self, method, url, **kwargs):
-        """Request wrapper that injects ALL jar cookies and handles SSL fallback."""
+        """Request wrapper that sends ALL jar cookies and handles SSL fallback."""
         ssl_opt = kwargs.pop("ssl", self.verify_ssl)
 
         hdrs = dict(kwargs.pop("headers", None) or {})
         hdrs.setdefault("User-Agent", _BROWSER_UA)
-        # Let aiohttp's cookie jar handle cookies naturally — no manual override.
-        hdrs.pop("Cookie", None)
+
+        # Manually build Cookie header from aroma-link cookies in the jar.
+        # aiohttp's filter_cookies() excludes some cookies (e.g. the
+        # d4879a69… nginx/WAF cookie) due to domain/path matching rules,
+        # but the Aroma-Link server requires them on AJAX endpoints.
+        cookie_parts = []
+        for morsel in self.session.cookie_jar:
+            if morsel.key in self._aroma_cookie_names:
+                cookie_parts.append(f"{morsel.key}={morsel.value}")
+        if cookie_parts:
+            hdrs["Cookie"] = "; ".join(cookie_parts)
+
         kwargs["headers"] = hdrs
 
-        # Diagnostic: log what cookies the jar will send for this URL.
-        try:
-            jar_cookies = self.session.cookie_jar.filter_cookies(URL(url))
-            _LOGGER.debug(
-                "request(%s %s) jar cookies: %s",
-                method.upper(), url,
-                {k: v.value for k, v in jar_cookies.items()},
-            )
-        except Exception:
-            pass
+        _LOGGER.debug(
+            "request(%s %s) Cookie header: %s",
+            method.upper(), url,
+            hdrs.get("Cookie", "(none)"),
+        )
 
         try:
             async with self.session.request(
@@ -144,6 +152,10 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         }
 
         try:
+            # Snapshot cookie names BEFORE aroma-link requests so we can
+            # identify which new cookies come from aroma-link.
+            pre_cookie_names = {c.key for c in self.session.cookie_jar}
+
             _LOGGER.debug(
                 "Attempting initial GET to aroma-link.com for cookies.")
             async with self.session.get(
@@ -155,6 +167,9 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
                 initial_response.raise_for_status()
                 _LOGGER.debug(
                     "Initial GET successful (status %s).", initial_response.status)
+                # Log Set-Cookie headers so we can debug cookie domain/path attrs.
+                for sc in initial_response.headers.getall("Set-Cookie", []):
+                    _LOGGER.debug("Initial GET Set-Cookie: %s", sc)
 
                 # Ensure languagecode is in the jar so it's sent on every request.
                 self.session.cookie_jar.update_cookies(
@@ -180,8 +195,22 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
                     if new_jsessionid:
                         self.jsessionid = new_jsessionid
 
-                    jar_keys = [c.key for c in self.session.cookie_jar]
-                    _LOGGER.debug("Cookies in jar after login: %s", jar_keys)
+                    # Identify cookies added by aroma-link requests.
+                    post_cookie_names = {c.key for c in self.session.cookie_jar}
+                    new_names = post_cookie_names - pre_cookie_names
+                    self._aroma_cookie_names.update(new_names)
+                    self._aroma_cookie_names.add("JSESSIONID")
+                    _LOGGER.debug(
+                        "Aroma-link cookie names: %s (new: %s)",
+                        self._aroma_cookie_names, new_names,
+                    )
+                    # Log full cookie attributes for debugging.
+                    for c in self.session.cookie_jar:
+                        _LOGGER.debug(
+                            "Jar cookie: %s=%s (domain=%r, path=%r)",
+                            c.key, c.value[:20] if c.value else "",
+                            c.get("domain", ""), c.get("path", ""),
+                        )
 
                     if self.jsessionid:
                         _LOGGER.debug("JSESSIONID: %s...", self.jsessionid[:5])
@@ -213,6 +242,7 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         API calls will succeed (sets server-side session context / additional
         cookies).  This mirrors what the browser does.
         """
+        pre = {c.key for c in self.session.cookie_jar}
         try:
             async with self.request(
                 "get",
@@ -221,12 +251,14 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
                 timeout=10,
             ) as resp:
                 body = await resp.text()
-                jar_cookies = [c.key for c in self.session.cookie_jar]
+                # Capture any new cookies set during warm-up.
+                post = {c.key for c in self.session.cookie_jar}
+                self._aroma_cookie_names.update(post - pre)
                 _LOGGER.debug(
                     "Session warm-up GET /device/list status: %s, "
-                    "cookies in jar after warm-up: %s",
+                    "aroma cookie names: %s",
                     resp.status,
-                    jar_cookies,
+                    self._aroma_cookie_names,
                 )
                 # Re-read JSESSIONID in case the server rotated it.
                 new_jsessionid = self._cookie_from_jar("JSESSIONID", resp.url)

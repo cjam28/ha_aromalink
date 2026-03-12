@@ -1334,6 +1334,7 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
     async def _visit_command_page(self):
         """Load the device command page so server-side session is valid for subsequent AJAX calls."""
         cmd_url = f"https://www.aroma-link.com/device/command/{self.device_id}"
+        pre = {c.key for c in self.auth_coordinator.session.cookie_jar}
         try:
             async with self.auth_coordinator.request(
                 "get",
@@ -1345,6 +1346,15 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                 timeout=10,
             ) as resp:
                 await resp.text()
+                # Capture any new cookies set by the command page.
+                post = {c.key for c in self.auth_coordinator.session.cookie_jar}
+                new_cookies = post - pre
+                if new_cookies:
+                    self.auth_coordinator._aroma_cookie_names.update(new_cookies)
+                    _LOGGER.debug(
+                        "Device %s command page set new cookies: %s",
+                        self.device_id, new_cookies,
+                    )
                 _LOGGER.debug(
                     "Device %s command-page warm-up status: %s",
                     self.device_id,
