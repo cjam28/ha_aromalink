@@ -5,6 +5,7 @@ import ssl
 from contextlib import asynccontextmanager
 from datetime import timedelta
 import aiohttp
+from yarl import URL
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -73,20 +74,6 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         except Exception as exc:
             _LOGGER.debug("Could not create SSL fallback notification: %s", exc)
 
-    def _build_cookie_header(self):
-        """Build a Cookie header with languagecode + all aroma-link cookies from the jar."""
-        parts = [f"languagecode={self.language_code}"]
-        if self.jsessionid and not self.jsessionid.startswith("temp_"):
-            parts.append(f"JSESSIONID={self.jsessionid}")
-        for cookie in self.session.cookie_jar:
-            domain = (cookie.get("domain", "") or "").lower()
-            if "aroma-link" not in domain:
-                continue
-            if cookie.key in ("JSESSIONID", "languagecode"):
-                continue
-            parts.append(f"{cookie.key}={cookie.value}")
-        return "; ".join(parts)
-
     @asynccontextmanager
     async def request(self, method, url, **kwargs):
         """Request wrapper that injects ALL jar cookies and handles SSL fallback."""
@@ -94,13 +81,8 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
 
         hdrs = dict(kwargs.pop("headers", None) or {})
         hdrs.setdefault("User-Agent", _BROWSER_UA)
-
-        cookie_hdr = self._build_cookie_header()
-        if cookie_hdr:
-            hdrs["Cookie"] = cookie_hdr
-        else:
-            hdrs.pop("Cookie", None)
-
+        # Let aiohttp's cookie jar handle cookies naturally — no manual override.
+        hdrs.pop("Cookie", None)
         kwargs["headers"] = hdrs
 
         try:
@@ -162,6 +144,12 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
                 initial_response.raise_for_status()
                 _LOGGER.debug(
                     "Initial GET successful (status %s).", initial_response.status)
+
+                # Ensure languagecode is in the jar so it's sent on every request.
+                self.session.cookie_jar.update_cookies(
+                    {"languagecode": self.language_code},
+                    URL(AROMA_BASE),
+                )
 
                 jsessionid = self._cookie_from_jar("JSESSIONID", initial_response.url)
                 if jsessionid:
@@ -229,15 +217,18 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
                     resp.status,
                     jar_cookies,
                 )
+                # Re-read JSESSIONID in case the server rotated it.
+                new_jsessionid = self._cookie_from_jar("JSESSIONID", resp.url)
+                if new_jsessionid and new_jsessionid != self.jsessionid:
+                    _LOGGER.debug(
+                        "JSESSIONID rotated during warm-up: %s... -> %s...",
+                        self.jsessionid[:5] if self.jsessionid else "None",
+                        new_jsessionid[:5],
+                    )
+                    self.jsessionid = new_jsessionid
+                    self._last_login_time = time.time()
         except Exception as exc:
             _LOGGER.debug("Session warm-up failed (non-fatal): %s", exc)
-
-    def get_cookie_header(self):
-        """Return an explicit Cookie header value for authenticated requests."""
-        parts = [f"languagecode={self.language_code}"]
-        if self.jsessionid and not self.jsessionid.startswith("temp_"):
-            parts.append(f"JSESSIONID={self.jsessionid}")
-        return "; ".join(parts)
 
     def _cookie_from_jar(self, name, url):
         """Read a single cookie from the shared session's cookie jar."""

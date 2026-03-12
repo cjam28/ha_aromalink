@@ -134,3 +134,4 @@ Project Docs/
 derived-cursor-rules.mdc
 derived-cursor-rules.mdc.*
 .specstory/
+cursor_auth_ssl_failure_workaround.md

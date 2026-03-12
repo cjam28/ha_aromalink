@@ -98,12 +98,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=update_interval_seconds),
         )
 
-    def _inject_cookie(self, headers):
-        """Add explicit Cookie header to a request headers dict."""
-        cookie = self.auth_coordinator.get_cookie_header()
-        if cookie:
-            headers["Cookie"] = cookie
-        return headers
 
     @property
     def diffuse_time(self):
@@ -803,11 +797,11 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
 
         url = f"https://www.aroma-link.com/device/workTime/{self.device_id}?week={week_day}"
 
-        headers = self._inject_cookie({
+        headers = {
             "X-Requested-With": "XMLHttpRequest",
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
-        })
+        }
 
         try:
             _LOGGER.debug(
@@ -976,11 +970,11 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
 
         url = f"https://www.aroma-link.com/device/workTime/{self.device_id}?week={week_day}"
 
-        headers = self._inject_cookie({
+        headers = {
             "X-Requested-With": "XMLHttpRequest",
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
-        })
+        }
 
         try:
             _LOGGER.debug(
@@ -1107,12 +1101,12 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "workTimeList": work_time_list
         }
 
-        headers = self._inject_cookie({
+        headers = {
             "Content-Type": "application/json;charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
-        })
+        }
 
         try:
             _LOGGER.debug(
@@ -1374,12 +1368,10 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         }
 
         try:
-            cookie_hdr = self.auth_coordinator._build_cookie_header()
             _LOGGER.debug(
-                "Fetching device info for device %s (url=%s, cookie-header=%s)",
+                "Fetching device info for device %s (url=%s)",
                 self.device_id,
                 url,
-                cookie_hdr,
             )
             async with self.auth_coordinator.request(
                 "get",
@@ -1454,17 +1446,16 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                 elif response.status in [401, 403]:
                     self._command_page_visited = False
                     resp_body = await response.text()
-                    resp_hdrs = dict(response.headers)
                     _LOGGER.warning(
                         "Authentication error (%s) for device %s. "
-                        "Response body (first 500): %s | Response headers: %s",
+                        "Forcing re-login on next cycle. Body (first 200): %s",
                         response.status,
                         self.device_id,
-                        resp_body[:500],
-                        resp_hdrs,
+                        resp_body[:200],
                     )
+                    # Invalidate session so next poll triggers a fresh login.
                     self.auth_coordinator.jsessionid = None
-                    raise UpdateFailed(f"Authentication error")
+                    raise UpdateFailed("Authentication error")
                 else:
                     _LOGGER.error(
                         f"Failed to fetch device {self.device_id} info, status: {response.status}")
@@ -1478,11 +1469,11 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         """Make an authenticated API request for diagnostics/testing."""
         await self.auth_coordinator._ensure_login()
 
-        headers = self._inject_cookie({
+        headers = {
             "X-Requested-With": "XMLHttpRequest",
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
-        })
+        }
 
         if json_body is not None:
             headers["Content-Type"] = "application/json"
@@ -1526,12 +1517,12 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "onOff": 1 if state_to_set else 0
         }
 
-        headers = self._inject_cookie({
+        headers = {
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
-        })
+        }
 
         try:
             _LOGGER.debug(
@@ -1581,12 +1572,12 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "fan": 1 if state_to_set else 0
         }
 
-        headers = self._inject_cookie({
+        headers = {
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
-        })
+        }
 
         try:
             _LOGGER.debug(
@@ -1686,12 +1677,12 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             ]
         }
 
-        headers = self._inject_cookie({
+        headers = {
             "Content-Type": "application/json;charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
-        })
+        }
 
         try:
             _LOGGER.debug(
