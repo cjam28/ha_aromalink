@@ -13,6 +13,14 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+class _AuthRetryable(Exception):
+    """Raised internally when a 401/403 should trigger a retry."""
+
+    def __init__(self, status):
+        self.status = status
+        super().__init__(f"HTTP {status}")
+
+
 class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
     """Coordinator for handling device data and control."""
 
@@ -1352,12 +1360,42 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             )
 
     async def _async_update_data(self):
-        """Fetch current device state from API."""
+        """Fetch current device state from API, with one retry on 401/403."""
         await self.auth_coordinator._ensure_login()
 
         if not self._command_page_visited:
             await self._visit_command_page()
 
+        try:
+            return await self._fetch_device_info()
+        except _AuthRetryable as retry_err:
+            # First 403/401: force a fresh login + command page visit, then retry once.
+            _LOGGER.warning(
+                "Got %s for device %s — re-authenticating and retrying once.",
+                retry_err.status,
+                self.device_id,
+            )
+            self.auth_coordinator.jsessionid = None
+            self._command_page_visited = False
+            await self.auth_coordinator._ensure_login()
+            await self._visit_command_page()
+            try:
+                return await self._fetch_device_info()
+            except _AuthRetryable:
+                _LOGGER.error(
+                    "Still getting %s for device %s after re-login. Giving up this cycle.",
+                    retry_err.status,
+                    self.device_id,
+                )
+                raise UpdateFailed("Authentication error after retry")
+        except UpdateFailed:
+            raise
+        except Exception as e:
+            _LOGGER.error("Error fetching device %s info: %s", self.device_id, e)
+            raise UpdateFailed(f"Error: {e}")
+
+    async def _fetch_device_info(self):
+        """Single attempt to fetch device info. Raises _AuthRetryable on 401/403."""
         url = f"https://www.aroma-link.com/device/deviceInfo/now/{self.device_id}?timeout=1000"
 
         headers = {
@@ -1367,103 +1405,98 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
 
-        try:
-            _LOGGER.debug(
-                "Fetching device info for device %s (url=%s)",
-                self.device_id,
-                url,
-            )
-            async with self.auth_coordinator.request(
-                "get",
-                url,
-                headers=headers,
-                timeout=15,
-            ) as response:
-                if response.status == 200:
-                    response_json = await response.json()
-                    _LOGGER.debug(
-                        "Device info response for device %s: %s",
-                        self.device_id,
-                        response_json,
+        _LOGGER.debug(
+            "Fetching device info for device %s (url=%s)",
+            self.device_id,
+            url,
+        )
+        async with self.auth_coordinator.request(
+            "get",
+            url,
+            headers=headers,
+            timeout=15,
+        ) as response:
+            if response.status == 200:
+                response_json = await response.json()
+                _LOGGER.debug(
+                    "Device info response for device %s: %s",
+                    self.device_id,
+                    response_json,
+                )
+
+                if response_json.get("code") == 200 and "data" in response_json:
+                    device_data = response_json["data"]
+                    is_on = device_data.get("onOff") == 1
+                    fan_on = device_data.get("fan") == 1
+                    work_status = device_data.get("workStatus", 0)
+                    pump_count = device_data.get("pumpCount", 0)
+
+                    # Get timing values from API
+                    work_remain = device_data.get("workRemainTime", 0) or 0
+                    pause_remain = device_data.get("pauseRemainTime", 0) or 0
+
+                    # Get work/pause duration settings
+                    work_duration = device_data.get("workSec", self._prev_work_duration)
+                    pause_duration = device_data.get("pauseSec", self._prev_pause_duration)
+
+                    # If workStatus=2 and workRemain > stored duration, update it
+                    if work_status == 2 and work_remain > work_duration:
+                        work_duration = work_remain
+
+                    # Update oil tracking with cycle detection
+                    self.update_oil_tracking(
+                        device_on=is_on,
+                        work_status=work_status,
+                        work_remain=work_remain,
+                        pause_remain=pause_remain,
+                        work_duration=work_duration,
+                        pause_duration=pause_duration,
                     )
 
-                    if response_json.get("code") == 200 and "data" in response_json:
-                        device_data = response_json["data"]
-                        is_on = device_data.get("onOff") == 1
-                        fan_on = device_data.get("fan") == 1
-                        work_status = device_data.get("workStatus", 0)
-                        pump_count = device_data.get("pumpCount", 0)
-                        
-                        # Get timing values from API
-                        work_remain = device_data.get("workRemainTime", 0) or 0
-                        pause_remain = device_data.get("pauseRemainTime", 0) or 0
-                        
-                        # Get work/pause duration settings
-                        # API may return workSec/pauseSec, or we infer from schedule
-                        work_duration = device_data.get("workSec", self._prev_work_duration)
-                        pause_duration = device_data.get("pauseSec", self._prev_pause_duration)
-                        
-                        # If workStatus=2 and workRemain > stored duration, update it
-                        if work_status == 2 and work_remain > work_duration:
-                            work_duration = work_remain
-                        
-                        # Update oil tracking with cycle detection
-                        self.update_oil_tracking(
-                            device_on=is_on,
-                            work_status=work_status,
-                            work_remain=work_remain,
-                            pause_remain=pause_remain,
-                            work_duration=work_duration,
-                            pause_duration=pause_duration,
-                        )
-                        
-                        # Get comprehensive oil tracking info
-                        oil_info = self.get_oil_tracking_info()
-                        
-                        return {
-                            "state": is_on,
-                            "onOff": device_data.get("onOff"),
-                            "fan": device_data.get("fan", 0),
-                            "fan_state": fan_on,
-                            "workStatus": work_status,
-                            "workRemainTime": work_remain,
-                            "pauseRemainTime": pause_remain,
-                            "workSec": work_duration,
-                            "pauseSec": pause_duration,
-                            "raw_device_data": device_data,
-                            "device_id": self.device_id,
-                            "device_name": self.device_name,
-                            "pumpCount": pump_count,
-                            "runCount": device_data.get("runCount", 0),
-                            # Oil tracking data
-                            **oil_info,
-                        }
-                    else:
-                        error_msg = response_json.get("msg", "Unknown error")
-                        _LOGGER.error(
-                            f"API error for device {self.device_id}: {error_msg}")
-                        raise UpdateFailed(f"API error: {error_msg}")
-                elif response.status in [401, 403]:
-                    self._command_page_visited = False
-                    resp_body = await response.text()
-                    _LOGGER.warning(
-                        "Authentication error (%s) for device %s. "
-                        "Forcing re-login on next cycle. Body (first 200): %s",
-                        response.status,
-                        self.device_id,
-                        resp_body[:200],
-                    )
-                    # Invalidate session so next poll triggers a fresh login.
-                    self.auth_coordinator.jsessionid = None
-                    raise UpdateFailed("Authentication error")
+                    # Get comprehensive oil tracking info
+                    oil_info = self.get_oil_tracking_info()
+
+                    return {
+                        "state": is_on,
+                        "onOff": device_data.get("onOff"),
+                        "fan": device_data.get("fan", 0),
+                        "fan_state": fan_on,
+                        "workStatus": work_status,
+                        "workRemainTime": work_remain,
+                        "pauseRemainTime": pause_remain,
+                        "workSec": work_duration,
+                        "pauseSec": pause_duration,
+                        "raw_device_data": device_data,
+                        "device_id": self.device_id,
+                        "device_name": self.device_name,
+                        "pumpCount": pump_count,
+                        "runCount": device_data.get("runCount", 0),
+                        # Oil tracking data
+                        **oil_info,
+                    }
                 else:
+                    error_msg = response_json.get("msg", "Unknown error")
                     _LOGGER.error(
-                        f"Failed to fetch device {self.device_id} info, status: {response.status}")
-                    raise UpdateFailed(
-                        f"Error fetching device info: status {response.status}")
-        except Exception as e:
-            _LOGGER.error(f"Error fetching device {self.device_id} info: {e}")
-            raise UpdateFailed(f"Error: {e}")
+                        "API error for device %s: %s", self.device_id, error_msg)
+                    raise UpdateFailed(f"API error: {error_msg}")
+            elif response.status in [401, 403]:
+                self._command_page_visited = False
+                resp_body = await response.text()
+                _LOGGER.debug(
+                    "Auth error (%s) for device %s. Body (first 200): %s",
+                    response.status,
+                    self.device_id,
+                    resp_body[:200],
+                )
+                raise _AuthRetryable(response.status)
+            else:
+                _LOGGER.error(
+                    "Failed to fetch device %s info, status: %s",
+                    self.device_id,
+                    response.status,
+                )
+                raise UpdateFailed(
+                    f"Error fetching device info: status {response.status}")
 
     async def api_request(self, url, method="GET", params=None, data=None, json_body=None):
         """Make an authenticated API request for diagnostics/testing."""

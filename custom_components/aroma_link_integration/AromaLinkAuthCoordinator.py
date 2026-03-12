@@ -85,6 +85,17 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         hdrs.pop("Cookie", None)
         kwargs["headers"] = hdrs
 
+        # Diagnostic: log what cookies the jar will send for this URL.
+        try:
+            jar_cookies = self.session.cookie_jar.filter_cookies(URL(url))
+            _LOGGER.debug(
+                "request(%s %s) jar cookies: %s",
+                method.upper(), url,
+                {k: v.value for k, v in jar_cookies.items()},
+            )
+        except Exception:
+            pass
+
         try:
             async with self.session.request(
                 method, url, ssl=ssl_opt, **kwargs
