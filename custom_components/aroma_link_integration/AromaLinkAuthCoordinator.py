@@ -75,14 +75,12 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
 
     @asynccontextmanager
     async def request(self, method, url, **kwargs):
-        """Request wrapper that injects auth cookies and User-Agent."""
+        """Request wrapper with SSL fallback. Lets the shared session cookie jar handle cookies."""
         ssl_opt = kwargs.pop("ssl", self.verify_ssl)
 
         hdrs = dict(kwargs.pop("headers", None) or {})
         hdrs.setdefault("User-Agent", _BROWSER_UA)
-        cookie_val = self.get_cookie_header()
-        if cookie_val:
-            hdrs["Cookie"] = cookie_val
+        hdrs.pop("Cookie", None)
         kwargs["headers"] = hdrs
 
         try:
@@ -163,6 +161,9 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
                     if new_jsessionid:
                         self.jsessionid = new_jsessionid
 
+                    jar_keys = [c.key for c in self.session.cookie_jar]
+                    _LOGGER.debug("Cookies in jar after login: %s", jar_keys)
+
                     if self.jsessionid:
                         _LOGGER.debug("JSESSIONID: %s...", self.jsessionid[:5])
                         self._last_login_time = time.time()
@@ -194,18 +195,19 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         cookies).  This mirrors what the browser does.
         """
         try:
-            warmup_headers = {
-                "Referer": f"{AROMA_BASE}/",
-                "Cookie": self.get_cookie_header(),
-            }
             async with self.request(
                 "get",
                 f"{AROMA_BASE}/device/list",
-                headers=warmup_headers,
+                headers={"Referer": f"{AROMA_BASE}/"},
                 timeout=10,
             ) as resp:
+                body = await resp.text()
+                jar_cookies = [c.key for c in self.session.cookie_jar]
                 _LOGGER.debug(
-                    "Session warm-up GET /device/list status: %s", resp.status
+                    "Session warm-up GET /device/list status: %s, "
+                    "cookies in jar after warm-up: %s",
+                    resp.status,
+                    jar_cookies,
                 )
         except Exception as exc:
             _LOGGER.debug("Session warm-up failed (non-fatal): %s", exc)

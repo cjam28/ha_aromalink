@@ -84,6 +84,8 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         # True = user wants Night Owl available for that day.
         self._night_owl_per_day = {d: False for d in range(7)}
 
+        self._command_page_visited = False
+
         self._save_oil_state_cb = save_oil_state_cb
 
         if oil_state:
@@ -1327,25 +1329,60 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "name": self.device_name
         }
 
+    async def _visit_command_page(self):
+        """Load the device command page so server-side session is valid for subsequent AJAX calls."""
+        cmd_url = f"https://www.aroma-link.com/device/command/{self.device_id}"
+        try:
+            async with self.auth_coordinator.request(
+                "get",
+                cmd_url,
+                headers={
+                    "Referer": "https://www.aroma-link.com/device/list",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                },
+                timeout=10,
+            ) as resp:
+                await resp.text()
+                _LOGGER.debug(
+                    "Device %s command-page warm-up status: %s",
+                    self.device_id,
+                    resp.status,
+                )
+                if resp.status == 200:
+                    self._command_page_visited = True
+        except Exception as exc:
+            _LOGGER.debug(
+                "Device %s command-page warm-up failed (non-fatal): %s",
+                self.device_id,
+                exc,
+            )
+
     async def _async_update_data(self):
         """Fetch current device state from API."""
         await self.auth_coordinator._ensure_login()
 
+        if not self._command_page_visited:
+            await self._visit_command_page()
+
         url = f"https://www.aroma-link.com/device/deviceInfo/now/{self.device_id}?timeout=1000"
 
-        headers = self._inject_cookie({
+        headers = {
             "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
             "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
-        })
+        }
 
         try:
-            jar_cookies = {c.key: c.value[:8] + "..." for c in self.auth_coordinator.session.cookie_jar}
+            from yarl import URL as _URL
+            filtered = self.auth_coordinator.session.cookie_jar.filter_cookies(
+                _URL(url)
+            )
             _LOGGER.debug(
-                "Fetching device info for device %s (url=%s, cookies=%s)",
+                "Fetching device info for device %s (url=%s, jar-cookies-for-url=%s)",
                 self.device_id,
                 url,
-                jar_cookies,
+                {k: v.value[:8] + "..." for k, v in filtered.items()},
             )
             async with self.auth_coordinator.request(
                 "get",
@@ -1418,6 +1455,7 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                             f"API error for device {self.device_id}: {error_msg}")
                         raise UpdateFailed(f"API error: {error_msg}")
                 elif response.status in [401, 403]:
+                    self._command_page_visited = False
                     resp_body = await response.text()
                     resp_hdrs = dict(response.headers)
                     _LOGGER.warning(
