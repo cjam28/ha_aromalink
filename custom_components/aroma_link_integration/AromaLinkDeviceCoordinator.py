@@ -1343,7 +1343,7 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                 },
                 timeout=10,
             ) as resp:
-                await resp.text()
+                body = await resp.text()
                 # Capture any new cookies set by the command page.
                 post = {c.key for c in self.auth_coordinator.session.cookie_jar}
                 new_cookies = post - pre
@@ -1353,13 +1353,23 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                         "Device %s command page set new cookies: %s",
                         self.device_id, new_cookies,
                     )
+                # Detect redirect to login page (aiohttp follows 302 automatically).
+                final_url = str(resp.url)
+                redirected_to_login = "/login" in final_url or "<form" in body[:2000] and "password" in body[:2000]
                 _LOGGER.debug(
-                    "Device %s command-page warm-up status: %s",
+                    "Device %s command-page warm-up status: %s, final_url: %s, redirected_to_login: %s",
                     self.device_id,
                     resp.status,
+                    final_url,
+                    redirected_to_login,
                 )
-                if resp.status == 200:
+                if resp.status == 200 and not redirected_to_login:
                     self._command_page_visited = True
+                elif redirected_to_login:
+                    _LOGGER.warning(
+                        "Device %s command page redirected to login — session may be invalid.",
+                        self.device_id,
+                    )
         except Exception as exc:
             _LOGGER.debug(
                 "Device %s command-page warm-up failed (non-fatal): %s",

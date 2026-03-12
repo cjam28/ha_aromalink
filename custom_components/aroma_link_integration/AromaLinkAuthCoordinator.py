@@ -79,29 +79,26 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
 
     @asynccontextmanager
     async def request(self, method, url, **kwargs):
-        """Request wrapper that sends ALL jar cookies and handles SSL fallback."""
+        """Request wrapper with User-Agent and SSL fallback.
+
+        Cookies are handled automatically by aiohttp's cookie jar —
+        no manual Cookie header is constructed.
+        """
         ssl_opt = kwargs.pop("ssl", self.verify_ssl)
 
         hdrs = dict(kwargs.pop("headers", None) or {})
         hdrs.setdefault("User-Agent", _BROWSER_UA)
-
-        # Manually build Cookie header from aroma-link cookies in the jar.
-        # aiohttp's filter_cookies() excludes some cookies (e.g. the
-        # d4879a69… nginx/WAF cookie) due to domain/path matching rules,
-        # but the Aroma-Link server requires them on AJAX endpoints.
-        cookie_parts = []
-        for morsel in self.session.cookie_jar:
-            if morsel.key in self._aroma_cookie_names:
-                cookie_parts.append(f"{morsel.key}={morsel.value}")
-        if cookie_parts:
-            hdrs["Cookie"] = "; ".join(cookie_parts)
+        # Strip any caller-provided Cookie header so the jar is authoritative.
+        hdrs.pop("Cookie", None)
 
         kwargs["headers"] = hdrs
 
+        # Log what the jar will send for debugging.
+        jar_cookies = self.session.cookie_jar.filter_cookies(URL(url))
         _LOGGER.debug(
-            "request(%s %s) Cookie header: %s",
+            "request(%s %s) jar cookies: %s",
             method.upper(), url,
-            hdrs.get("Cookie", "(none)"),
+            {k: v.value[:20] for k, v in jar_cookies.items()} if jar_cookies else "(none)",
         )
 
         try:
@@ -251,13 +248,21 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
                 timeout=10,
             ) as resp:
                 body = await resp.text()
+                final_url = str(resp.url)
+                if "/login" in final_url:
+                    _LOGGER.warning(
+                        "Session warm-up redirected to login — session invalid."
+                    )
+                    self.jsessionid = None
+                    return
                 # Capture any new cookies set during warm-up.
                 post = {c.key for c in self.session.cookie_jar}
                 self._aroma_cookie_names.update(post - pre)
                 _LOGGER.debug(
                     "Session warm-up GET /device/list status: %s, "
-                    "aroma cookie names: %s",
+                    "final_url: %s, aroma cookie names: %s",
                     resp.status,
+                    final_url,
                     self._aroma_cookie_names,
                 )
                 # Re-read JSESSIONID in case the server rotated it.
