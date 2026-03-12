@@ -1110,7 +1110,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         headers = {
             "Content-Type": "application/json;charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
 
@@ -1383,6 +1382,7 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
 
         if not self._command_page_visited:
             await self._visit_command_page()
+            await self._probe_session()
 
         try:
             return await self._fetch_device_info()
@@ -1412,13 +1412,39 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Error fetching device %s info: %s", self.device_id, e)
             raise UpdateFailed(f"Error: {e}")
 
+    async def _probe_session(self):
+        """Quick probe: hit /device/list/v2 (same as config_flow) to verify the session works."""
+        probe_url = (
+            "https://www.aroma-link.com/device/list/v2"
+            "?limit=10&offset=0&selectUserId=&groupId=&deviceName="
+            "&imei=&deviceNo=&workStatus=&continentId=&countryId="
+            "&areaId=&sort=&order="
+        )
+        try:
+            async with self.auth_coordinator.request(
+                "get",
+                probe_url,
+                headers={
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Referer": "https://www.aroma-link.com/device/list",
+                },
+                timeout=10,
+            ) as resp:
+                body = await resp.text()
+                _LOGGER.debug(
+                    "Session probe /device/list/v2 status=%s body(100)=%s",
+                    resp.status,
+                    body[:100],
+                )
+        except Exception as exc:
+            _LOGGER.debug("Session probe failed: %s", exc)
+
     async def _fetch_device_info(self):
         """Single attempt to fetch device info. Raises _AuthRetryable on 401/403."""
         url = f"https://www.aroma-link.com/device/deviceInfo/now/{self.device_id}?timeout=1000"
 
         headers = {
             "X-Requested-With": "XMLHttpRequest",
-            "Accept": "application/json, text/javascript, */*; q=0.01",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
 
@@ -1573,7 +1599,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         headers = {
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
 
@@ -1628,7 +1653,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         headers = {
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
 
@@ -1733,7 +1757,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         headers = {
             "Content-Type": "application/json;charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
 

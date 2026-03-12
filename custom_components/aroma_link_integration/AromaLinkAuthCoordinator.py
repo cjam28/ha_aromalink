@@ -77,28 +77,27 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         except Exception as exc:
             _LOGGER.debug("Could not create SSL fallback notification: %s", exc)
 
+    def get_cookie_header(self):
+        """Build the Cookie header value matching what a browser sends."""
+        parts = [f"languagecode={self.language_code}"]
+        if self.jsessionid and not self.jsessionid.startswith("temp_"):
+            parts.append(f"JSESSIONID={self.jsessionid}")
+        return "; ".join(parts)
+
     @asynccontextmanager
     async def request(self, method, url, **kwargs):
-        """Request wrapper with User-Agent and SSL fallback.
-
-        Cookies are handled automatically by aiohttp's cookie jar —
-        no manual Cookie header is constructed.
-        """
+        """Request wrapper that injects explicit Cookie + User-Agent, with SSL fallback."""
         ssl_opt = kwargs.pop("ssl", self.verify_ssl)
 
         hdrs = dict(kwargs.pop("headers", None) or {})
         hdrs.setdefault("User-Agent", _BROWSER_UA)
-        # Strip any caller-provided Cookie header so the jar is authoritative.
-        hdrs.pop("Cookie", None)
+        hdrs["Cookie"] = self.get_cookie_header()
 
         kwargs["headers"] = hdrs
 
-        # Log what the jar will send for debugging.
-        jar_cookies = self.session.cookie_jar.filter_cookies(URL(url))
         _LOGGER.debug(
-            "request(%s %s) jar cookies: %s",
-            method.upper(), url,
-            {k: v.value[:20] for k, v in jar_cookies.items()} if jar_cookies else "(none)",
+            "request(%s %s) Cookie: %s",
+            method.upper(), url, hdrs["Cookie"],
         )
 
         try:
