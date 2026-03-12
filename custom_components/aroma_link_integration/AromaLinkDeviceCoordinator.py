@@ -1364,6 +1364,24 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                 )
                 if resp.status == 200 and not redirected_to_login:
                     self._command_page_visited = True
+                    import re
+                    for match in re.finditer(
+                        r'(deviceInfo[^"\')\s]{0,120})', body
+                    ):
+                        _LOGGER.debug(
+                            "Device %s JS deviceInfo ref: %s",
+                            self.device_id,
+                            match.group(1)[:200],
+                        )
+                    for match in re.finditer(
+                        r'url\s*[:=]\s*["\']([^"\']*device[^"\']*)["\']',
+                        body,
+                    ):
+                        _LOGGER.debug(
+                            "Device %s JS url ref: %s",
+                            self.device_id,
+                            match.group(1)[:200],
+                        )
                 elif redirected_to_login:
                     _LOGGER.warning(
                         "Device %s command page redirected to login — session may be invalid.",
@@ -1413,31 +1431,28 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(f"Error: {e}")
 
     async def _probe_session(self):
-        """Quick probe: hit /device/list/v2 (same as config_flow) to verify the session works."""
-        probe_url = (
-            "https://www.aroma-link.com/device/list/v2"
-            "?limit=10&offset=0&selectUserId=&groupId=&deviceName="
-            "&imei=&deviceNo=&workStatus=&continentId=&countryId="
-            "&areaId=&sort=&order="
-        )
-        try:
-            async with self.auth_coordinator.request(
-                "get",
-                probe_url,
-                headers={
-                    "X-Requested-With": "XMLHttpRequest",
-                    "Referer": "https://www.aroma-link.com/device/list",
-                },
-                timeout=10,
-            ) as resp:
-                body = await resp.text()
-                _LOGGER.debug(
-                    "Session probe /device/list/v2 status=%s body(100)=%s",
-                    resp.status,
-                    body[:100],
-                )
-        except Exception as exc:
-            _LOGGER.debug("Session probe failed: %s", exc)
+        """Probe multiple URL variants to find which ones nginx allows."""
+        referer = f"https://www.aroma-link.com/device/command/{self.device_id}"
+        ajax_hdrs = {"X-Requested-With": "XMLHttpRequest", "Referer": referer}
+
+        variants = [
+            ("GET", f"https://www.aroma-link.com/device/deviceInfo/now/{self.device_id}?timeout=1000", ajax_hdrs),
+            ("POST", f"https://www.aroma-link.com/device/deviceInfo/now/{self.device_id}?timeout=1000", ajax_hdrs),
+            ("GET", f"https://www.aroma-link.com/device/deviceInfo/now/{self.device_id}", ajax_hdrs),
+            ("GET", f"https://www.aroma-link.com/device/deviceInfo/{self.device_id}", ajax_hdrs),
+        ]
+        for method, url, hdrs in variants:
+            try:
+                async with self.auth_coordinator.request(
+                    method.lower(), url, headers=dict(hdrs), timeout=10,
+                ) as resp:
+                    body = await resp.text()
+                    _LOGGER.debug(
+                        "Probe %s %s → status=%s body(120)=%s",
+                        method, url, resp.status, body[:120],
+                    )
+            except Exception as exc:
+                _LOGGER.debug("Probe %s %s → error: %s", method, url, exc)
 
     async def _fetch_device_info(self):
         """Single attempt to fetch device info. Raises _AuthRetryable on 401/403."""
