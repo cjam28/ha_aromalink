@@ -280,7 +280,6 @@ class AromaLinkConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             
             device_headers = {
                 "X-Requested-With": "XMLHttpRequest",
-                "Origin": "https://www.aroma-link.com",
                 "Referer": "https://www.aroma-link.com/device/list",
                 "Cookie": f"languagecode={language_code}; JSESSIONID={jsessionid}"
             }

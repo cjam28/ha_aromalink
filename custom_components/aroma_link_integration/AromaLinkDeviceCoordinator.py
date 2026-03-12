@@ -807,7 +807,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
 
         headers = {
             "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
 
@@ -980,7 +979,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
 
         headers = {
             "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
 
@@ -1411,7 +1409,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         headers = {
             "X-Requested-With": "XMLHttpRequest",
             "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
 
@@ -1514,9 +1511,12 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
 
         headers = {
             "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://www.aroma-link.com",
             "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
         }
+
+        # Only send Origin on POST/PUT (browsers don't send it on same-origin GET).
+        if method.upper() != "GET":
+            headers["Origin"] = "https://www.aroma-link.com"
 
         if json_body is not None:
             headers["Content-Type"] = "application/json"
