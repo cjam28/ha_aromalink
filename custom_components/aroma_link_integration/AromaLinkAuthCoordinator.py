@@ -74,18 +74,18 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("Could not create SSL fallback notification: %s", exc)
 
     def _build_cookie_header(self):
-        """Build a Cookie header from ALL aroma-link cookies in the shared jar.
-
-        aiohttp's filter_cookies() can silently drop cookies that were set
-        without an explicit Domain attribute or with path restrictions.  We
-        sidestep that by iterating the raw jar and including every cookie whose
-        domain contains 'aroma-link'.
-        """
+        """Build a Cookie header from ALL aroma-link cookies in the shared jar."""
         parts = []
         for cookie in self.session.cookie_jar:
             domain = cookie.get("domain", "") or ""
-            key = cookie.key
-            if "aroma-link" in domain or "aroma-link" in key or not domain:
+            _LOGGER.debug(
+                "Jar cookie: key=%s domain='%s' path='%s' value=%s...",
+                cookie.key,
+                domain,
+                cookie.get("path", ""),
+                cookie.value[:8] if cookie.value else "",
+            )
+            if "aroma-link" in domain.lower() or not domain:
                 parts.append(f"{cookie.key}={cookie.value}")
         return "; ".join(parts) if parts else None
 
