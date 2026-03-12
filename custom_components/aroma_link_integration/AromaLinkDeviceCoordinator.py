@@ -1374,15 +1374,12 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         }
 
         try:
-            from yarl import URL as _URL
-            filtered = self.auth_coordinator.session.cookie_jar.filter_cookies(
-                _URL(url)
-            )
+            cookie_hdr = self.auth_coordinator._build_cookie_header()
             _LOGGER.debug(
-                "Fetching device info for device %s (url=%s, jar-cookies-for-url=%s)",
+                "Fetching device info for device %s (url=%s, cookie-header=%s)",
                 self.device_id,
                 url,
-                {k: v.value[:8] + "..." for k, v in filtered.items()},
+                cookie_hdr,
             )
             async with self.auth_coordinator.request(
                 "get",

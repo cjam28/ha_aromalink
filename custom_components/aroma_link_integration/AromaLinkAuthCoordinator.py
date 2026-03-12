@@ -73,14 +73,36 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
         except Exception as exc:
             _LOGGER.debug("Could not create SSL fallback notification: %s", exc)
 
+    def _build_cookie_header(self):
+        """Build a Cookie header from ALL aroma-link cookies in the shared jar.
+
+        aiohttp's filter_cookies() can silently drop cookies that were set
+        without an explicit Domain attribute or with path restrictions.  We
+        sidestep that by iterating the raw jar and including every cookie whose
+        domain contains 'aroma-link'.
+        """
+        parts = []
+        for cookie in self.session.cookie_jar:
+            domain = cookie.get("domain", "") or ""
+            key = cookie.key
+            if "aroma-link" in domain or "aroma-link" in key or not domain:
+                parts.append(f"{cookie.key}={cookie.value}")
+        return "; ".join(parts) if parts else None
+
     @asynccontextmanager
     async def request(self, method, url, **kwargs):
-        """Request wrapper with SSL fallback. Lets the shared session cookie jar handle cookies."""
+        """Request wrapper that injects ALL jar cookies and handles SSL fallback."""
         ssl_opt = kwargs.pop("ssl", self.verify_ssl)
 
         hdrs = dict(kwargs.pop("headers", None) or {})
         hdrs.setdefault("User-Agent", _BROWSER_UA)
-        hdrs.pop("Cookie", None)
+
+        cookie_hdr = self._build_cookie_header()
+        if cookie_hdr:
+            hdrs["Cookie"] = cookie_hdr
+        else:
+            hdrs.pop("Cookie", None)
+
         kwargs["headers"] = hdrs
 
         try:
