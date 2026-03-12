@@ -74,20 +74,18 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("Could not create SSL fallback notification: %s", exc)
 
     def _build_cookie_header(self):
-        """Build a Cookie header from ALL aroma-link cookies in the shared jar."""
-        parts = []
+        """Build a Cookie header with languagecode + all aroma-link cookies from the jar."""
+        parts = [f"languagecode={self.language_code}"]
+        if self.jsessionid and not self.jsessionid.startswith("temp_"):
+            parts.append(f"JSESSIONID={self.jsessionid}")
         for cookie in self.session.cookie_jar:
-            domain = cookie.get("domain", "") or ""
-            _LOGGER.debug(
-                "Jar cookie: key=%s domain='%s' path='%s' value=%s...",
-                cookie.key,
-                domain,
-                cookie.get("path", ""),
-                cookie.value[:8] if cookie.value else "",
-            )
-            if "aroma-link" in domain.lower() or not domain:
-                parts.append(f"{cookie.key}={cookie.value}")
-        return "; ".join(parts) if parts else None
+            domain = (cookie.get("domain", "") or "").lower()
+            if "aroma-link" not in domain:
+                continue
+            if cookie.key in ("JSESSIONID", "languagecode"):
+                continue
+            parts.append(f"{cookie.key}={cookie.value}")
+        return "; ".join(parts)
 
     @asynccontextmanager
     async def request(self, method, url, **kwargs):
