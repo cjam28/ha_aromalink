@@ -1,0 +1,532 @@
+{
+  "trace": {
+    "last_step": "action/5/default/1",
+    "run_id": "ccb9a3f4bf05815170e1da1344d474c2",
+    "state": "stopped",
+    "script_execution": "finished",
+    "timestamp": {
+      "start": "2026-03-12T19:21:31.114910+00:00",
+      "finish": "2026-03-12T19:21:44.053314+00:00"
+    },
+    "domain": "automation",
+    "item_id": "1773291806070",
+    "trigger": "state of climate.pool_house",
+    "trace": {
+      "trigger/1": [
+        {
+          "path": "trigger/1",
+          "timestamp": "2026-03-12T19:21:31.115384+00:00",
+          "changed_variables": {
+            "this": {
+              "entity_id": "automation.pool_house_aroma_link_full_diffuser_control_schedule_night_owl",
+              "state": "on",
+              "attributes": {
+                "id": "1773291806070",
+                "last_triggered": "2026-03-12T18:43:31.115030+00:00",
+                "mode": "restart",
+                "current": 0,
+                "friendly_name": "Pool House Aroma-Link: Full Diffuser Control (Schedule + Night Owl)"
+              },
+              "last_changed": "2026-03-12T16:33:31.201386+00:00",
+              "last_reported": "2026-03-12T18:43:44.610742+00:00",
+              "last_updated": "2026-03-12T18:43:44.610742+00:00",
+              "context": {
+                "id": "01KKHNS8B2QS9GQQK47F6RP8DC",
+                "parent_id": null,
+                "user_id": null
+              }
+            },
+            "trigger": {
+              "id": "1",
+              "idx": "1",
+              "alias": null,
+              "platform": "state",
+              "entity_id": "climate.pool_house",
+              "from_state": {
+                "entity_id": "climate.pool_house",
+                "state": "heat_cool",
+                "attributes": {
+                  "hvac_modes": [
+                    "heat_cool",
+                    "heat",
+                    "cool",
+                    "off"
+                  ],
+                  "min_temp": 44.6,
+                  "max_temp": 95,
+                  "target_temp_step": 0.5,
+                  "fan_modes": [
+                    "auto",
+                    "on"
+                  ],
+                  "preset_modes": [
+                    "sleep",
+                    "away",
+                    "home",
+                    "away_indefinitely"
+                  ],
+                  "current_temperature": 71.3,
+                  "temperature": null,
+                  "target_temp_high": 71,
+                  "target_temp_low": 68,
+                  "current_humidity": 58,
+                  "fan_mode": "auto",
+                  "hvac_action": "fan",
+                  "preset_mode": "home",
+                  "fan": "on",
+                  "climate_mode": "Home",
+                  "equipment_running": "fan",
+                  "fan_min_on_time": 15,
+                  "available_sensors": [
+                    "Pool House Back Bed (7b198d6b95097e33ff563242a00a38a5)",
+                    "Pool House Thermostat (987bb32f4e4c9a4a0309b3cec2ea45f6)"
+                  ],
+                  "active_sensors": [
+                    "Pool House Back Bed",
+                    "Pool House Thermostat"
+                  ],
+                  "friendly_name": "Pool House Thermostat",
+                  "supported_features": 411
+                },
+                "last_changed": "2026-03-12T16:33:30.685918+00:00",
+                "last_reported": "2026-03-12T19:18:31.161798+00:00",
+                "last_updated": "2026-03-12T19:18:31.161798+00:00",
+                "context": {
+                  "id": "01KKHQRXZS6D3HR3HV7ZT331HW",
+                  "parent_id": null,
+                  "user_id": null
+                }
+              },
+              "to_state": {
+                "entity_id": "climate.pool_house",
+                "state": "heat_cool",
+                "attributes": {
+                  "hvac_modes": [
+                    "heat_cool",
+                    "heat",
+                    "cool",
+                    "off"
+                  ],
+                  "min_temp": 44.6,
+                  "max_temp": 95,
+                  "target_temp_step": 0.5,
+                  "fan_modes": [
+                    "auto",
+                    "on"
+                  ],
+                  "preset_modes": [
+                    "sleep",
+                    "away",
+                    "home",
+                    "away_indefinitely"
+                  ],
+                  "current_temperature": 71.8,
+                  "temperature": null,
+                  "target_temp_high": 71,
+                  "target_temp_low": 68,
+                  "current_humidity": 62,
+                  "fan_mode": "auto",
+                  "hvac_action": "idle",
+                  "preset_mode": "home",
+                  "fan": "off",
+                  "climate_mode": "Home",
+                  "equipment_running": "",
+                  "fan_min_on_time": 15,
+                  "available_sensors": [
+                    "Pool House Back Bed (7b198d6b95097e33ff563242a00a38a5)",
+                    "Pool House Thermostat (987bb32f4e4c9a4a0309b3cec2ea45f6)"
+                  ],
+                  "active_sensors": [
+                    "Pool House Back Bed",
+                    "Pool House Thermostat"
+                  ],
+                  "friendly_name": "Pool House Thermostat",
+                  "supported_features": 411
+                },
+                "last_changed": "2026-03-12T16:33:30.685918+00:00",
+                "last_reported": "2026-03-12T19:21:31.114424+00:00",
+                "last_updated": "2026-03-12T19:21:31.114424+00:00",
+                "context": {
+                  "id": "01KKHQYDQAHTNFRZGTFDA83QAB",
+                  "parent_id": null,
+                  "user_id": null
+                }
+              },
+              "for": null,
+              "attribute": "hvac_action",
+              "description": "state of climate.pool_house"
+            },
+            "_aroma_device": "07510716038f2b5870eed97e9bdc4367",
+            "_scheduled_on_sensor": "binary_sensor.pool_house_scheduled_on"
+          }
+        }
+      ],
+      "action/0": [
+        {
+          "path": "action/0",
+          "timestamp": "2026-03-12T19:21:31.115709+00:00",
+          "changed_variables": {
+            "context": {
+              "id": "01KKHQYDQA9SP3PTGDSX7Y7J0K",
+              "parent_id": "01KKHQYDQAHTNFRZGTFDA83QAB",
+              "user_id": null
+            },
+            "aroma_device": "07510716038f2b5870eed97e9bdc4367",
+            "hvac_entity": "climate.pool_house",
+            "occupancy_sensor": "binary_sensor.home_occupancy",
+            "presence_sensors": [
+              "binary_sensor.pool_house_occupancy"
+            ],
+            "schedule_active_switch": "switch.pool_house_schedule_active",
+            "night_owl_switch": "switch.pool_house_night_owl",
+            "scheduled_on_sensor": "binary_sensor.pool_house_scheduled_on"
+          }
+        }
+      ],
+      "action/1": [
+        {
+          "path": "action/1",
+          "timestamp": "2026-03-12T19:21:31.116437+00:00",
+          "result": {
+            "params": {
+              "domain": "homeassistant",
+              "service": "update_entity",
+              "service_data": {},
+              "target": {
+                "entity_id": [
+                  "climate.pool_house"
+                ]
+              }
+            },
+            "running_script": false
+          }
+        }
+      ],
+      "action/2": [
+        {
+          "path": "action/2",
+          "timestamp": "2026-03-12T19:21:31.119465+00:00",
+          "result": {
+            "delay": 5,
+            "done": true
+          }
+        }
+      ],
+      "action/3": [
+        {
+          "path": "action/3",
+          "timestamp": "2026-03-12T19:21:36.121114+00:00",
+          "changed_variables": {
+            "hvac_running": false,
+            "scheduled": true,
+            "occupied": true,
+            "presence": true,
+            "night_owl_enabled": true,
+            "device_id": 419933
+          }
+        }
+      ],
+      "action/4": [
+        {
+          "path": "action/4",
+          "timestamp": "2026-03-12T19:21:36.121772+00:00",
+          "changed_variables": {
+            "want_schedule": false,
+            "want_night_owl": false
+          }
+        }
+      ],
+      "action/5": [
+        {
+          "path": "action/5",
+          "timestamp": "2026-03-12T19:21:36.121995+00:00",
+          "result": {
+            "choice": "default"
+          }
+        }
+      ],
+      "action/5/choose/0": [
+        {
+          "path": "action/5/choose/0",
+          "timestamp": "2026-03-12T19:21:36.122081+00:00",
+          "result": {
+            "result": false
+          }
+        }
+      ],
+      "action/5/choose/0/conditions/0": [
+        {
+          "path": "action/5/choose/0/conditions/0",
+          "timestamp": "2026-03-12T19:21:36.122151+00:00",
+          "result": {
+            "result": false,
+            "entities": []
+          }
+        }
+      ],
+      "action/5/choose/1": [
+        {
+          "path": "action/5/choose/1",
+          "timestamp": "2026-03-12T19:21:36.122333+00:00",
+          "result": {
+            "result": false
+          }
+        }
+      ],
+      "action/5/choose/1/conditions/0": [
+        {
+          "path": "action/5/choose/1/conditions/0",
+          "timestamp": "2026-03-12T19:21:36.122397+00:00",
+          "result": {
+            "result": false,
+            "entities": []
+          }
+        }
+      ],
+      "action/5/default/0": [
+        {
+          "path": "action/5/default/0",
+          "timestamp": "2026-03-12T19:21:36.122721+00:00",
+          "result": {
+            "params": {
+              "domain": "switch",
+              "service": "turn_off",
+              "service_data": {},
+              "target": {
+                "entity_id": [
+                  "switch.pool_house_schedule_active"
+                ]
+              }
+            },
+            "running_script": false
+          }
+        }
+      ],
+      "action/5/default/1": [
+        {
+          "path": "action/5/default/1",
+          "timestamp": "2026-03-12T19:21:40.221729+00:00",
+          "result": {
+            "params": {
+              "domain": "aroma_link_integration",
+              "service": "set_night_owl_active",
+              "service_data": {
+                "device_id": 419933,
+                "enabled": false
+              },
+              "target": {}
+            },
+            "running_script": false
+          }
+        }
+      ]
+    },
+    "config": {
+      "mode": "restart",
+      "trigger_variables": {
+        "_aroma_device": "07510716038f2b5870eed97e9bdc4367",
+        "_scheduled_on_sensor": "{{ device_entities(_aroma_device) | select('match', 'binary_sensor\\\\..*_scheduled_on$') | first }}"
+      },
+      "triggers": [
+        {
+          "trigger": "state",
+          "entity_id": "climate.pool_house",
+          "attribute": "hvac_action",
+          "from": "idle",
+          "for": {
+            "minutes": 1
+          }
+        },
+        {
+          "trigger": "state",
+          "entity_id": "climate.pool_house",
+          "attribute": "hvac_action",
+          "to": "idle"
+        },
+        {
+          "trigger": "template",
+          "value_template": "{{ is_state(_scheduled_on_sensor, 'on') }}"
+        },
+        {
+          "trigger": "template",
+          "value_template": "{{ is_state(_scheduled_on_sensor, 'off') }}"
+        },
+        {
+          "trigger": "event",
+          "event_type": "aroma_link_integration_schedule_synced"
+        },
+        {
+          "trigger": "state",
+          "entity_id": [
+            "binary_sensor.pool_house_occupancy"
+          ],
+          "to": "on"
+        },
+        {
+          "trigger": "state",
+          "entity_id": [
+            "binary_sensor.pool_house_occupancy"
+          ],
+          "to": "off",
+          "for": {
+            "minutes": 10
+          }
+        }
+      ],
+      "actions": [
+        {
+          "variables": {
+            "aroma_device": "07510716038f2b5870eed97e9bdc4367",
+            "hvac_entity": "climate.pool_house",
+            "occupancy_sensor": "binary_sensor.home_occupancy",
+            "presence_sensors": [
+              "binary_sensor.pool_house_occupancy"
+            ],
+            "schedule_active_switch": "{{ device_entities(aroma_device) | select('match', 'switch\\\\..*_schedule_active$') | first }}",
+            "night_owl_switch": "{{ device_entities(aroma_device) | select('match', 'switch\\\\..*_night_owl$') | first }}",
+            "scheduled_on_sensor": "{{ device_entities(aroma_device) | select('match', 'binary_sensor\\\\..*_scheduled_on$') | first }}"
+          }
+        },
+        {
+          "action": "homeassistant.update_entity",
+          "target": {
+            "entity_id": "{{ hvac_entity }}"
+          }
+        },
+        {
+          "delay": {
+            "seconds": 5
+          }
+        },
+        {
+          "variables": {
+            "hvac_running": "{{ state_attr(hvac_entity, 'hvac_action') not in ['idle', none, 'off'] }}",
+            "scheduled": "{{ is_state(scheduled_on_sensor, 'on') }}",
+            "occupied": "{{ is_state(occupancy_sensor, 'on') }}",
+            "presence": "{{ expand(presence_sensors) | selectattr('state', 'eq', 'on') | list | count > 0 }}",
+            "night_owl_enabled": "{{ is_state(night_owl_switch, 'on') }}",
+            "device_id": "{{ state_attr(night_owl_switch, 'device_id') }}"
+          }
+        },
+        {
+          "variables": {
+            "want_schedule": "{{ hvac_running and scheduled and occupied }}",
+            "want_night_owl": "{{ hvac_running and (not scheduled) and presence and night_owl_enabled }}"
+          }
+        },
+        {
+          "choose": [
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ want_schedule }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "action": "switch.turn_on",
+                  "target": {
+                    "entity_id": "{{ schedule_active_switch }}"
+                  }
+                },
+                {
+                  "action": "aroma_link_integration.set_night_owl_active",
+                  "data": {
+                    "device_id": "{{ device_id }}",
+                    "enabled": false
+                  }
+                }
+              ]
+            },
+            {
+              "conditions": [
+                {
+                  "condition": "template",
+                  "value_template": "{{ want_night_owl }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "action": "aroma_link_integration.set_night_owl_active",
+                  "data": {
+                    "device_id": "{{ device_id }}",
+                    "enabled": true
+                  }
+                },
+                {
+                  "action": "switch.turn_off",
+                  "target": {
+                    "entity_id": "{{ schedule_active_switch }}"
+                  }
+                }
+              ]
+            }
+          ],
+          "default": [
+            {
+              "action": "switch.turn_off",
+              "target": {
+                "entity_id": "{{ schedule_active_switch }}"
+              }
+            },
+            {
+              "action": "aroma_link_integration.set_night_owl_active",
+              "data": {
+                "device_id": "{{ device_id }}",
+                "enabled": false
+              }
+            }
+          ]
+        }
+      ],
+      "id": "1773291806070",
+      "alias": "Pool House Aroma-Link: Full Diffuser Control (Schedule + Night Owl)",
+      "description": ""
+    },
+    "blueprint_inputs": {
+      "id": "1773291806070",
+      "alias": "Pool House Aroma-Link: Full Diffuser Control (Schedule + Night Owl)",
+      "description": "",
+      "use_blueprint": {
+        "path": "aroma_link_integration/aroma_link_full.yaml",
+        "input": {
+          "aroma_device": "07510716038f2b5870eed97e9bdc4367",
+          "hvac_entity": "climate.pool_house",
+          "occupancy_sensor": "binary_sensor.home_occupancy",
+          "presence_sensors": [
+            "binary_sensor.pool_house_occupancy"
+          ]
+        }
+      }
+    },
+    "context": {
+      "id": "01KKHQYDQA9SP3PTGDSX7Y7J0K",
+      "parent_id": "01KKHQYDQAHTNFRZGTFDA83QAB",
+      "user_id": null
+    }
+  },
+  "logbookEntries": [
+    {
+      "name": "Pool House Aroma-Link: Full Diffuser Control (Schedule + Night Owl)",
+      "message": "triggered by state of climate.pool_house",
+      "source": "state of climate.pool_house",
+      "entity_id": "automation.pool_house_aroma_link_full_diffuser_control_schedule_night_owl",
+      "context_id": "01KKHQYDQA9SP3PTGDSX7Y7J0K",
+      "domain": "automation",
+      "when": 1773343291.115474
+    },
+    {
+      "state": "off",
+      "entity_id": "switch.pool_house_schedule_active",
+      "icon": "mdi:calendar-check",
+      "when": 1773343300.2204726,
+      "context_event_type": "automation_triggered",
+      "context_domain": "automation",
+      "context_name": "Pool House Aroma-Link: Full Diffuser Control (Schedule + Night Owl)",
+      "context_message": "triggered by state of climate.pool_house",
+      "context_source": "state of climate.pool_house",
+      "context_entity_id": "automation.pool_house_aroma_link_full_diffuser_control_schedule_night_owl"
+    }
+  ]
+}

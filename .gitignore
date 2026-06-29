@@ -1,3 +1,50 @@
+<!-- BEGIN managed-from-template:v2 (do not edit between markers; run sync-templates.sh) -->
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+
+# Backup files written by scaffolding (divergent hardlinks, replaced symlinks)
+*.bak-*
+*.divergent-*.bak
+*.replaced-*.bak
+
+# Local credentials
+.env
+.env.local
+.env.*.local
+*.secrets.env
+*.pem
+*.key
+
+# Claude Code local (machine-specific) settings — never committed
+.claude/settings.local.json
+
+# Worktree convention: one workstream = one branch = one worktree under .worktrees/
+.worktrees/
+
+# Editor state
+.vscode/
+!.vscode/extensions.json
+.idea/
+
+# Build/dependency artifacts (extend per-project below)
+node_modules/
+dist/
+build/
+.next/
+__pycache__/
+*.pyc
+
+# SpecStory: history IS committed (with Guard hook scanning for secrets).
+# Only ignore the cache/state SpecStory writes alongside it.
+.specstory/.what-is-this.md
+.specstory/cache/
+
+<!-- END managed-from-template -->
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -135,3 +182,6 @@ derived-cursor-rules.mdc
 derived-cursor-rules.mdc.*
 .specstory/
 cursor_auth_ssl_failure_workaround.md
+# project-specific: captures may contain auth tokens/cookies
+*.har
+ha.altohomes.biz-recording.json

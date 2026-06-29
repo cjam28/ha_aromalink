@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "mcp-altohomes": {
+      "url": "https://mcp.christoalto.com/mcp/$smart/altohomes",
+      "headers": {
+        "Authorization": "Bearer ${MCPHUB_CHRISTOALTO_TOKEN:-}"
+      }
+    },
+    "mcp-cauld": {
+      "url": "https://mcp.christoalto.com/mcp/$smart/cauld",
+      "headers": {
+        "Authorization": "Bearer ${MCPHUB_CHRISTOALTO_TOKEN:-}"
+      }
+    },
+    "prompts-chat": {
+      "url": "https://prompts.chat/api/mcp"
+    }
+  }
+}
