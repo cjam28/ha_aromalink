@@ -1,4 +1,4 @@
-<!-- BEGIN managed-from-template:v2 (do not edit between markers; run sync-templates.sh) -->
+<!-- BEGIN managed-from-template:v3 (do not edit between markers; run sync-templates.sh) -->
 # OS / editor noise
 .DS_Store
 Thumbs.db
@@ -11,13 +11,15 @@ Thumbs.db
 *.divergent-*.bak
 *.replaced-*.bak
 
-# Local credentials
+# Local credentials (RESOLVED values — never committed)
 .env
 .env.local
 .env.*.local
 *.secrets.env
 *.pem
 *.key
+# .env.op is git-TRACKED (op:// references only, no values) — delivered to cloud/CI. See 03-secrets.mdc.
+!.env.op
 
 # Claude Code local (machine-specific) settings — never committed
 .claude/settings.local.json
