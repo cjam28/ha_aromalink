@@ -186,4 +186,6 @@ derived-cursor-rules.mdc.*
 cursor_auth_ssl_failure_workaround.md
 # project-specific: captures may contain auth tokens/cookies
 *.har
-ha.altohomes.biz-recording.json
+*-recording.json
+# public repo: keep generated MCP config (real hub endpoints) local-only
+.mcp.json
