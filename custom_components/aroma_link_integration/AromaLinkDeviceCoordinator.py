@@ -124,6 +124,30 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=update_interval_seconds),
         )
 
+        # Seed fallback state so entity code never sees data=None when the
+        # first refresh fails (the device stays registered and recovers on a
+        # later poll).
+        if self.data is None:
+            self.data = self._default_device_data()
+
+    def _default_device_data(self):
+        """Return the fallback state used before the first successful refresh."""
+        return {
+            "state": False,
+            "onOff": None,
+            "fan": 0,
+            "fan_state": False,
+            "workStatus": None,
+            "workRemainTime": None,
+            "pauseRemainTime": None,
+            "workSec": self._work_duration,
+            "pauseSec": self._pause_duration,
+            "raw_device_data": {},
+            "device_id": self.device_id,
+            "device_name": self.device_name,
+            "pumpCount": 0,
+            "runCount": 0,
+        }
 
     @property
     def diffuse_time(self):

@@ -409,18 +409,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             oil_state=oil_state_data.get(str(device_id)) or oil_state_data.get(device_id),
         )
 
-        # Do first refresh for each device
+        # Do first refresh for each device. A failed refresh no longer drops
+        # the device: it stays registered so its entities appear (unavailable)
+        # and recover on the next poll (upstream bdbaea2).
+        await device_coordinator.async_refresh()
+        if not device_coordinator.last_update_success:
+            _LOGGER.warning(
+                f"Initial refresh failed for device {device_id}; "
+                "keeping it registered so it can recover on a later poll"
+            )
+        device_coordinators[device_id] = device_coordinator
+
+        # Clean up old helper entities from previous version
         try:
-            await device_coordinator.async_config_entry_first_refresh()
-            device_coordinators[device_id] = device_coordinator
-            
-            # Clean up old helper entities from previous version
-            try:
-                await _cleanup_old_helpers(hass, device_name)
-            except Exception as e:
-                _LOGGER.warning(f"Failed to cleanup old helpers for {device_name}: {e}")
+            await _cleanup_old_helpers(hass, device_name)
         except Exception as e:
-            _LOGGER.error(f"Error initializing device {device_id}: {e}")
+            _LOGGER.warning(f"Failed to cleanup old helpers for {device_name}: {e}")
 
     if not device_coordinators:
         _LOGGER.error("Failed to initialize any devices")
