@@ -4,11 +4,11 @@
   "after_dependencies": [],
   "codeowners": ["@cjam28", "@DalyMauldin", "@Memberapple"],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": ["http"],
   "documentation": "https://github.com/cjam28/homeassistant_aroma-link#readme",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/cjam28/homeassistant_aroma-link/issues",
   "loggers": ["custom_components.aroma_link_integration"],
   "requirements": [],
-  "version": "2.6.0"
+  "version": "2.6.1"
 }
