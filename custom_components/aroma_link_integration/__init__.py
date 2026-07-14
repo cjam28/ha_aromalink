@@ -35,6 +35,9 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# This integration is config-entry only; declare it so hassfest can verify.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 PLATFORMS = ["switch", "button", "number", "sensor", "select", "text", "binary_sensor"]
 
 SET_SCHEDULER_SCHEMA = vol.Schema({
