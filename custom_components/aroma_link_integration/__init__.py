@@ -929,7 +929,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         if coordinator:
             _LOGGER.info(f"Timed run complete for device {device_id}, turning off")
             try:
-                await coordinator.set_power(False)
+                run_state = timed_runs.get(device_id) or {}
+                # Disarm the 24/7 slot we armed at start, BEFORE the off
+                # command, so the device cannot re-activate itself in the gap
+                # (upstream issue #31). Leaves card-managed schedules alone
+                # when this run never wrote one.
+                if run_state.get("schedule_armed"):
+                    await coordinator._disable_schedule(
+                        run_state.get("armed_work_sec"),
+                        run_state.get("armed_pause_sec"),
+                    )
+                await coordinator.turn_on_off(False)
                 # Fire event so card can update
                 hass.bus.async_fire(
                     f"{DOMAIN}_timed_run_complete",
@@ -978,20 +988,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             del timed_runs[device_id]
 
         # Apply work/pause settings if provided
+        schedule_armed = False
+        armed_work_sec = None
+        armed_pause_sec = None
         if work_sec is not None or pause_sec is not None:
             try:
-                await coordinator.set_scheduler(
-                    work_duration=work_sec or coordinator.data.get("workRemainTime", 5),
-                    pause_duration=pause_sec or coordinator.data.get("pauseRemainTime", 900)
+                armed_work_sec = work_sec or coordinator.data.get("workRemainTime", 5)
+                armed_pause_sec = pause_sec or coordinator.data.get("pauseRemainTime", 900)
+                schedule_armed = await coordinator.set_scheduler(
+                    work_duration=armed_work_sec,
+                    pause_duration=armed_pause_sec,
                 )
             except Exception as e:
                 _LOGGER.warning(f"Failed to set work/pause for timed run: {e}")
 
         # Turn on the device
         try:
-            await coordinator.set_power(True)
+            turned_on = await coordinator.turn_on_off(True)
         except Exception as e:
             _LOGGER.error(f"Failed to turn on device for timed run: {e}")
+            turned_on = False
+        if not turned_on:
+            # Don't leave the 24/7 schedule armed when the run never started.
+            if schedule_armed:
+                await coordinator._disable_schedule(armed_work_sec, armed_pause_sec)
             return
 
         # Schedule turn-off
@@ -1007,7 +1027,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         timed_runs[device_id] = {
             "cancel_callback": cancel_callback,
             "end_time": end_time,
-            "duration_hours": duration_hours
+            "duration_hours": duration_hours,
+            "schedule_armed": schedule_armed,
+            "armed_work_sec": armed_work_sec,
+            "armed_pause_sec": armed_pause_sec,
         }
 
         _LOGGER.info(f"Started timed run for device {device_id}: {duration_hours} hours")
