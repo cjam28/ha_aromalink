@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import logging
+import time
 from datetime import timedelta
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from .const import (
@@ -23,6 +24,17 @@ class _AuthRetryable(Exception):
 
 class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
     """Coordinator for handling device data and control."""
+
+    # After a switch command, polls that contradict it are only trusted when
+    # the server's snapshot (statisticsUpdateTime) postdates the command; the
+    # device takes 15-20s to acknowledge commands and the API can serve stale
+    # cached state long after that (upstream issue #34).
+    STALE_STATS_PROTECT_SECONDS = 1800
+    # Fallback shield when the poll carries no snapshot timestamp at all.
+    NO_STATS_PROTECT_SECONDS = 180
+    # Snapshots must postdate the command by this margin to count as fresh,
+    # absorbing small clock skew between the Aroma-Link server and this host.
+    STATS_FRESHNESS_MARGIN_SECONDS = 5
 
     def __init__(
         self,
@@ -93,6 +105,12 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         self._night_owl_per_day = {d: False for d in range(7)}
 
         self._command_page_visited = False
+
+        # Last power-switch command, used to shield polls that still report
+        # pre-command state (upstream issue #34).
+        self._last_switch_command_at = 0.0
+        self._last_switch_command_wall = 0.0
+        self._last_switch_state = None
 
         self._save_oil_state_cb = save_oil_state_cb
 
@@ -1376,6 +1394,77 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                 exc,
             )
 
+    def _poll_stats_timestamp(self, data):
+        """Return the server snapshot time (epoch seconds) carried by a poll, if any."""
+        raw = data.get("raw_device_data")
+        if not isinstance(raw, dict):
+            return None
+        value = raw.get("statisticsUpdateTime")
+        if value is None:
+            return None
+        try:
+            return int(value) / 1000
+        except (TypeError, ValueError):
+            return None
+
+    def _apply_recent_switch_state(self, data):
+        """Keep the last switch command while polls still report pre-command state.
+
+        Polls can reflect a device snapshot that predates a just-sent switch
+        command (upstream issue #34: HA flipped back to On one poll after
+        powering off). A contradicting poll is therefore only trusted when its
+        statisticsUpdateTime shows it postdates the command, with time-based
+        caps as a backstop.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        if self._last_switch_state is None:
+            return data
+
+        optimistic_on_off = 1 if self._last_switch_state else 0
+
+        # The server reflects our command; nothing to shield.
+        if data.get("onOff") is not None and data.get("onOff") == optimistic_on_off:
+            return data
+
+        command_age = time.monotonic() - self._last_switch_command_at
+        stats_timestamp = self._poll_stats_timestamp(data)
+
+        if stats_timestamp is not None:
+            snapshot_is_fresh = stats_timestamp >= (
+                self._last_switch_command_wall + self.STATS_FRESHNESS_MARGIN_SECONDS
+            )
+            if snapshot_is_fresh or command_age > self.STALE_STATS_PROTECT_SECONDS:
+                return data
+            _LOGGER.debug(
+                "Ignoring stale poll for device %s: server snapshot %.0fs older than "
+                "the last switch command; keeping commanded state onOff=%s.",
+                self.device_id,
+                self._last_switch_command_wall - stats_timestamp,
+                optimistic_on_off,
+            )
+        elif command_age > self.NO_STATS_PROTECT_SECONDS:
+            return data
+
+        optimistic = dict(data)
+        optimistic["onOff"] = optimistic_on_off
+        optimistic["state"] = bool(self._last_switch_state)
+        if self._last_switch_state:
+            # The stale poll may still say idle; report the commanded state as
+            # active. A reported pause is plausible mid-cycle, keep it.
+            if not optimistic.get("workStatus"):
+                optimistic["workStatus"] = 1
+        else:
+            optimistic["workStatus"] = 0
+
+        return optimistic
+
+    async def _delayed_refresh(self, delay_seconds=3):
+        """Refresh later so optimistic state is not immediately wiped by stale data."""
+        await asyncio.sleep(delay_seconds)
+        await self.async_request_refresh()
+
     async def _async_update_data(self):
         """Fetch current device state from API, with one retry on 401/403."""
         await self.auth_coordinator._ensure_login()
@@ -1384,7 +1473,7 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             await self._visit_command_page()
 
         try:
-            return await self._fetch_device_info()
+            return self._apply_recent_switch_state(await self._fetch_device_info())
         except _AuthRetryable as retry_err:
             # First 403/401: force a fresh login + command page visit, then retry once.
             _LOGGER.warning(
@@ -1397,7 +1486,7 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             await self.auth_coordinator._ensure_login()
             await self._visit_command_page()
             try:
-                return await self._fetch_device_info()
+                return self._apply_recent_switch_state(await self._fetch_device_info())
             except _AuthRetryable:
                 _LOGGER.error(
                     "Still getting %s for device %s after re-login. Giving up this cycle.",
@@ -1597,7 +1686,20 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                     )
                     _LOGGER.info(
                         f"Successfully commanded device {self.device_id} to {'on' if state_to_set else 'off'}")
-                    await self.async_request_refresh()
+                    # Record the command and show it optimistically; polls that
+                    # still report pre-command state are shielded in
+                    # _apply_recent_switch_state (upstream issue #34).
+                    self._last_switch_command_at = time.monotonic()
+                    self._last_switch_command_wall = time.time()
+                    self._last_switch_state = state_to_set
+                    optimistic_data = dict(self.data or {})
+                    optimistic_data["state"] = state_to_set
+                    optimistic_data["onOff"] = 1 if state_to_set else 0
+                    optimistic_data["workStatus"] = 1 if state_to_set else 0
+                    self.async_set_updated_data(optimistic_data)
+                    self.hass.async_create_task(self._delayed_refresh())
+                    # Second refresh once the device's 15-20s command ack has passed.
+                    self.hass.async_create_task(self._delayed_refresh(25))
                     return True
                 elif response.status in [401, 403]:
                     _LOGGER.warning(
@@ -1651,7 +1753,11 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                     )
                     _LOGGER.info(
                         f"Successfully commanded fan for device {self.device_id} to {'on' if state_to_set else 'off'}")
-                    await self.async_request_refresh()
+                    optimistic_data = dict(self.data or {})
+                    optimistic_data["fan"] = 1 if state_to_set else 0
+                    optimistic_data["fan_state"] = bool(state_to_set)
+                    self.async_set_updated_data(optimistic_data)
+                    self.hass.async_create_task(self._delayed_refresh())
                     return True
                 elif response.status in [401, 403]:
                     _LOGGER.warning(
