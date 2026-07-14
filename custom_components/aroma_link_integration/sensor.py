@@ -1,6 +1,6 @@
 """Sensor platform for Aroma-Link."""
 import logging
-from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
+from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.const import UnitOfTime
@@ -71,6 +71,23 @@ class AromaLinkSensorBase(CoordinatorEntity, SensorEntity):
             manufacturer="Aroma-Link",
             model="Diffuser",
         )
+
+    def _get_raw_count(self, *keys):
+        """Return the first numeric count available from raw device data."""
+        raw_data = self.coordinator.data.get("raw_device_data", {})
+        if not isinstance(raw_data, dict):
+            return None
+
+        for key in keys:
+            value = raw_data.get(key)
+            if value is None:
+                continue
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+
+        return None
 
 
 def _get_first_value(raw_data, keys):
@@ -170,20 +187,29 @@ class AromaLinkOnCountSensor(AromaLinkSensorBase):
     def __init__(self, coordinator, entry, device_id, device_name):
         """Initialize the on count sensor."""
         super().__init__(
-            coordinator, 
-            entry, 
-            device_id, 
-            device_name, 
-            "On Count", 
+            coordinator,
+            entry,
+            device_id,
+            device_name,
+            "On Count",
             icon="mdi:counter",
             unit="activations"
         )
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
 
     @property
     def native_value(self):
         """Return the on count value."""
-        raw_data = self.coordinator.data.get("raw_device_data", {})
-        return raw_data.get("onCount")
+        return self._get_raw_count(
+            "onCount",
+            "runCount",
+            "on_count",
+            "run_count",
+            "openCount",
+            "open_count",
+            "startCount",
+            "start_count",
+        )
 
 class AromaLinkPumpCountSensor(AromaLinkSensorBase):
     """Sensor showing the number of times the pump has operated (diffusions)."""
@@ -191,20 +217,27 @@ class AromaLinkPumpCountSensor(AromaLinkSensorBase):
     def __init__(self, coordinator, entry, device_id, device_name):
         """Initialize the pump count sensor."""
         super().__init__(
-            coordinator, 
-            entry, 
-            device_id, 
-            device_name, 
-            "Pump Count", 
+            coordinator,
+            entry,
+            device_id,
+            device_name,
+            "Pump Count",
             icon="mdi:shimmer",
             unit="diffusions"
         )
+        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
 
     @property
     def native_value(self):
         """Return the pump count value."""
-        raw_data = self.coordinator.data.get("raw_device_data", {})
-        return raw_data.get("pumpCount")
+        return self._get_raw_count(
+            "pumpCount",
+            "airPumpCount",
+            "pump_count",
+            "air_pump_count",
+            "pumpTimes",
+            "pump_times",
+        )
 
 
 class AromaLinkSignalStrengthSensor(AromaLinkSensorBase):
