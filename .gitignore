@@ -189,3 +189,5 @@ cursor_auth_ssl_failure_workaround.md
 *-recording.json
 # public repo: keep generated MCP config (real hub endpoints) local-only
 .mcp.json
+# public repo: automation traces + climate CSV exports are local diagnostics
+traces/
