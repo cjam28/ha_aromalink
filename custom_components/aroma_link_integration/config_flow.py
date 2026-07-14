@@ -348,7 +348,7 @@ class AromaLinkOptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_VERIFY_SSL,
                         default=options.get(
                             CONF_VERIFY_SSL,
-                            self._config_entry.data.get(CONF_VERIFY_SSL, False),
+                            self._config_entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
                         ),
                     ): bool,
                     vol.Optional(

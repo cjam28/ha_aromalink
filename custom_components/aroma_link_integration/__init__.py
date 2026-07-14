@@ -350,7 +350,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     if verify_ssl is None:
         verify_ssl = entry.data.get(CONF_VERIFY_SSL)
     if verify_ssl is None:
-        verify_ssl = False
+        # Verify by default; the runtime SSL fallback (allow_ssl_fallback)
+        # still downgrades with a notification if the cert breaks again.
+        verify_ssl = True
 
     allow_ssl_fallback = entry.options.get(CONF_ALLOW_SSL_FALLBACK)
     if allow_ssl_fallback is None:
