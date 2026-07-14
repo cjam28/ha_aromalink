@@ -1777,11 +1777,13 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                     )
                     _LOGGER.info(
                         f"Successfully commanded fan for device {self.device_id} to {'on' if state_to_set else 'off'}")
+                    # Optimistic only — no early refresh: the stale-poll shield
+                    # covers power, not fan, so a quick re-poll would wipe this
+                    # with pre-ack state. The next regular poll reconciles.
                     optimistic_data = dict(self.data or {})
                     optimistic_data["fan"] = 1 if state_to_set else 0
                     optimistic_data["fan_state"] = bool(state_to_set)
                     self.async_set_updated_data(optimistic_data)
-                    self.hass.async_create_task(self._delayed_refresh())
                     return True
                 elif response.status in [401, 403]:
                     _LOGGER.warning(

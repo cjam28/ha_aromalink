@@ -1076,7 +1076,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         existing = timed_runs[device_id]
         if existing.get("cancel_callback"):
             existing["cancel_callback"]()
-        
+
+        # Disarm the 24/7 slot this run armed. The device keeps running (power
+        # stays on), but without this a later manual power-off would be undone
+        # by the still-armed schedule (upstream issue #31).
+        if existing.get("schedule_armed"):
+            coordinator = device_coordinators.get(device_id)
+            if coordinator:
+                await coordinator._disable_schedule(
+                    existing.get("armed_work_sec"),
+                    existing.get("armed_pause_sec"),
+                )
+
         del timed_runs[device_id]
         
         _LOGGER.info(f"Cancelled timed run for device {device_id}")
