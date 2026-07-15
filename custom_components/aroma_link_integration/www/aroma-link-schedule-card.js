@@ -235,6 +235,18 @@ class AromaLinkScheduleCard extends LitElement {
     }
   }
 
+  async _copyFrom(targetDeviceId, sourceDeviceId) {
+    const target = this._stores.get(targetDeviceId);
+    const source = this._stores.get(sourceDeviceId);
+    if (!target || !source || !source.schedule) return;
+    try {
+      await target.save(cloneSchedule(source.schedule), { ...source.nightOwl });
+      this._showToast("Schedule copied", targetDeviceId);
+    } catch (err) {
+      this._showToast(`Copy failed: ${err?.message || err}`);
+    }
+  }
+
   // ------------------------------------------------------------- rendering
 
   _syncChip(store, deviceId) {
@@ -273,7 +285,22 @@ class AromaLinkScheduleCard extends LitElement {
       <div class="device">
         <div class="devhead">
           <span class="devname">${device.name}</span>
-          ${this._syncChip(store, device.device_id)}
+          <span class="headactions">
+            ${(this._devices || [])
+              .filter((other) => other.device_id !== device.device_id)
+              .map(
+                (other) => html`
+                  <button
+                    class="chip"
+                    title="Copy ${other.name}'s schedule to ${device.name}"
+                    @click=${() => this._copyFrom(device.device_id, other.device_id)}
+                  >
+                    ⧉ ${other.name}
+                  </button>
+                `
+              )}
+            ${this._syncChip(store, device.device_id)}
+          </span>
         </div>
         <div class="statusline">${this._statusLine(store)}</div>
         ${store.error ? html`<div class="error">⚠ ${store.error}</div>` : nothing}
@@ -405,6 +432,12 @@ class AromaLinkScheduleCard extends LitElement {
     .devname {
       font-weight: 600;
       font-size: 1.05em;
+    }
+    .headactions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
     }
     .statusline {
       font-size: 0.88em;
