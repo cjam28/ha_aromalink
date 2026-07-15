@@ -4,6 +4,8 @@ import os
 
 from .AromaLinkAuthCoordinator import AromaLinkAuthCoordinator
 from .AromaLinkDeviceCoordinator import AromaLinkDeviceCoordinator
+from .migration import async_import_legacy
+from .store import AromaLinkStore
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -299,6 +301,22 @@ async def _install_blueprints(hass: HomeAssistant):
         _LOGGER.warning("Failed to install blueprints: %s", exc)
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry):
+    """Migrate old config entries to the current version."""
+    if entry.version > 2:
+        # Downgrade from a future version is not supported.
+        return False
+    if entry.version < 2:
+        # v1 -> v2: introduce the per-device gates container in options.
+        # Empty gates mean every gate passes (pure schedule behavior) until
+        # the user configures climate/occupancy/motion in the options flow.
+        new_options = {**entry.options}
+        new_options.setdefault("gates", {})
+        hass.config_entries.async_update_entry(entry, options=new_options, version=2)
+        _LOGGER.info("Migrated %s config entry to version 2", DOMAIN)
+    return True
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
@@ -441,10 +459,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         except Exception as e:
             _LOGGER.warning(f"Failed to auto-fetch schedules for device {device_id}: {e}")
 
+    # v3 desired-state store: load and (idempotently) import legacy state.
+    # In this phase the store is written but NOT yet authoritative — the
+    # reconciler/engine (later phases) become its consumers.
+    al_store = AromaLinkStore(hass, entry.entry_id)
+    await al_store.async_load()
+    try:
+        await async_import_legacy(hass, entry.entry_id, al_store, device_coordinators)
+    except Exception:
+        _LOGGER.exception("Legacy state import failed; will retry next setup")
+
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "auth_coordinator": auth_coordinator,
         "device_coordinators": device_coordinators,
+        "store": al_store,
     }
 
     # Register services
