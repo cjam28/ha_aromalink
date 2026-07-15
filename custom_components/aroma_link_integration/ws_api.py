@@ -337,13 +337,33 @@ _ENTITY_SUFFIXES = {
 }
 
 
+def async_device_unmanaged(hass, username: str, device_id: str) -> bool:
+    """True when the device's power switch is disabled in the entity registry.
+
+    Disabling the power switch (or the whole HA device, which cascades to its
+    entities) is the user's signal that an account device is not managed by
+    this HA instance — e.g. hardware at another property. Unmanaged devices
+    get no reconciler or gating engine and are hidden from the card.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id(
+        "switch", DOMAIN, f"{username}_{device_id}_switch"
+    )
+    if not entity_id:
+        return False
+    entry = registry.async_get(entity_id)
+    return bool(entry and entry.disabled_by)
+
+
 @websocket_api.websocket_command({vol.Required("type"): "aroma_link/list_devices"})
 @websocket_api.async_response
 async def ws_list_devices(hass, connection, msg):
     """Enumerate Aroma-Link devices with their resolved entity_ids.
 
     Entity ids are looked up by unique_id in the registry, so the card
-    survives entity renames.
+    survives entity renames. Devices disabled in HA are omitted.
     """
     from homeassistant.helpers import entity_registry as er
 
@@ -354,6 +374,8 @@ async def ws_list_devices(hass, connection, msg):
             continue
         username = entry_data.get("username", "")
         for device_id, coordinator in (entry_data.get("device_coordinators") or {}).items():
+            if async_device_unmanaged(hass, username, str(device_id)):
+                continue
             entities = {}
             for key, (platform, suffix) in _ENTITY_SUFFIXES.items():
                 entity_id = registry.async_get_entity_id(

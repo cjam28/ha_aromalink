@@ -392,6 +392,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     except Exception:
         _LOGGER.exception("Legacy state import failed; will retry next setup")
 
+    # Devices disabled in HA (power switch disabled_by set, e.g. via device
+    # disable) belong to another property/instance: keep the read-only poll,
+    # but never write to them — no reconciler, no gating engine, no drift heal.
+    unmanaged = {
+        device_id
+        for device_id in device_coordinators
+        if ws_api.async_device_unmanaged(hass, username, device_id)
+    }
+    if unmanaged:
+        _LOGGER.info(
+            "Devices disabled in HA, leaving unmanaged (no gating, no schedule pushes): %s",
+            ", ".join(sorted(device_coordinators[d].device_name for d in unmanaged)),
+        )
+
     for device_id, coordinator in device_coordinators.items():
         oil_state = al_store.get_oil(device_id)
         if oil_state:
@@ -413,9 +427,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         except Exception as e:
             _LOGGER.warning(f"Failed to cleanup old helpers: {e}")
 
-        reconcilers[device_id] = ScheduleReconciler(
-            hass, coordinator, al_store, device_id
-        )
+        if device_id not in unmanaged:
+            reconcilers[device_id] = ScheduleReconciler(
+                hass, coordinator, al_store, device_id
+            )
 
     # Once every device is imported cleanly and oil lives in the new store,
     # the legacy oil-state file has no reader left.
@@ -428,6 +443,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Native gating engines (replace the legacy blueprints).
     engines: dict[str, GatingEngine] = {}
     for device_id, coordinator in device_coordinators.items():
+        if device_id in unmanaged:
+            continue
         engines[device_id] = GatingEngine(
             hass,
             coordinator,
