@@ -32,6 +32,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
+from .const import EVENT_UPDATED
 from .models import active_window, night_owl_period
 from .store import AromaLinkStore
 
@@ -94,6 +95,7 @@ class GatingEngine:
         self._last_commanded: bool | None = None
         self._last_commanded_at: datetime | None = None
         self._snapshot: dict = {}
+        self._last_broadcast: dict | None = None
 
     # ------------------------------------------------------------- lifecycle
 
@@ -211,7 +213,10 @@ class GatingEngine:
                     "end": window_hit[2].end,
                 },
                 "hvac": hvac_ok,
+                "hvac_configured": bool(self._config.climate_entity),
+                "hvac_action": self._hvac_action(),
                 "occupancy": occupancy_ok,
+                "occupancy_configured": bool(self._config.occupancy_entity),
             }
             return hvac_ok and occupancy_ok
 
@@ -223,14 +228,32 @@ class GatingEngine:
         self._snapshot = {"decision": "outside"}
         return False
 
+    def _hvac_action(self) -> str | None:
+        if not self._config.climate_entity:
+            return None
+        state = self._hass.states.get(self._config.climate_entity)
+        return state.attributes.get("hvac_action") if state else None
+
     def snapshot(self) -> dict:
         """Last decision context (for the scheduled_on attributes / ws status)."""
         return dict(self._snapshot)
+
+    def _broadcast_gating(self, desired) -> None:
+        """Announce gate-state changes so the card can render them live."""
+        payload = {**self._snapshot, "desired": desired}
+        if payload == self._last_broadcast:
+            return
+        self._last_broadcast = payload
+        self._hass.bus.async_fire(
+            EVENT_UPDATED,
+            {"device_id": self._device_id, "change": "gating", "version": None},
+        )
 
     # ------------------------------------------------------------- act
 
     async def async_evaluate(self, reason: str = "tick") -> None:
         desired = self.desired_power()
+        self._broadcast_gating(desired)
         if desired is None:
             return
 

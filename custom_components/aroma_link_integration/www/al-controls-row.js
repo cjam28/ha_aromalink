@@ -78,6 +78,63 @@ class AlControlsRow extends LitElement {
     await api.cancelTimedRun(this.hass, this.deviceId);
   }
 
+  _gatePills() {
+    const g = this.status?.gating;
+    if (!g || !g.decision) return nothing;
+    if (g.decision === "window") {
+      const pills = [];
+      if (g.hvac_configured) {
+        const action = g.hvac_action || (g.hvac ? "circulating" : "idle");
+        pills.push(html`
+          <span class="pill ${g.hvac ? "ok" : "hold"}">
+            <ha-icon icon=${g.hvac ? "mdi:fan" : "mdi:fan-off"}></ha-icon>
+            HVAC ${action} — ${g.hvac ? "diffusing" : "paused"}
+          </span>
+        `);
+      }
+      if (g.occupancy_configured) {
+        pills.push(html`
+          <span class="pill ${g.occupancy ? "ok" : "hold"}">
+            <ha-icon icon=${g.occupancy ? "mdi:account-check" : "mdi:account-off"}></ha-icon>
+            ${g.occupancy ? "Occupied" : "Empty"}
+          </span>
+        `);
+      }
+      return pills.length ? html`<div class="gates">${pills}</div>` : nothing;
+    }
+    if (g.decision === "night_owl") {
+      return html`
+        <div class="gates">
+          <span class="pill ${g.motion ? "ok" : "hold"}">
+            <ha-icon icon="mdi:owl"></ha-icon>
+            Night Owl — ${g.motion ? "motion seen, diffusing" : "waiting for motion"}
+          </span>
+        </div>
+      `;
+    }
+    if (g.decision === "outside") {
+      return html`
+        <div class="gates">
+          <span class="pill muted">
+            <ha-icon icon="mdi:clock-outline"></ha-icon>
+            Outside schedule
+          </span>
+        </div>
+      `;
+    }
+    if (g.decision === "hands_off") {
+      return html`
+        <div class="gates">
+          <span class="pill muted">
+            <ha-icon icon="mdi:hand-back-right-outline"></ha-icon>
+            Schedule off — manual control
+          </span>
+        </div>
+      `;
+    }
+    return nothing; // timed_run: the countdown already shows it
+  }
+
   render() {
     const power = this._entityState("power");
     const fan = this._entityState("fan");
@@ -123,6 +180,7 @@ class AlControlsRow extends LitElement {
               </div>
             `}
       </div>
+      ${this._gatePills()}
     `;
   }
 
@@ -206,6 +264,36 @@ class AlControlsRow extends LitElement {
       background: var(--primary-color);
       border-color: var(--primary-color);
       color: var(--text-primary-color, #fff);
+    }
+    .gates {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.75em;
+      padding: 3px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--divider-color);
+      color: var(--secondary-text-color);
+      --mdc-icon-size: 14px;
+    }
+    .pill ha-icon {
+      display: flex;
+    }
+    .pill.ok {
+      color: var(--primary-text-color);
+      background: rgba(var(--rgb-primary-color, 33, 150, 243), 0.12);
+      border-color: rgba(var(--rgb-primary-color, 33, 150, 243), 0.5);
+    }
+    .pill.hold {
+      color: var(--primary-text-color);
+      background: rgba(255, 152, 0, 0.14);
+      border-color: rgba(255, 152, 0, 0.6);
     }
     button:active {
       filter: brightness(0.92);

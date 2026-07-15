@@ -190,6 +190,12 @@ class AlEditorSheet extends LitElement {
     const problems = this._problems;
     return html`
       <div class="head">Edit · Window ${this.target.index + 1} — ${DAY_NAMES[this.target.day]}</div>
+      <div class="hint">
+        A window is a time span when the diffuser is armed. Work/Pause is the
+        spray cycle (seconds misting vs resting); Level is intensity. The
+        Days/Windows chips apply this edit to several cells at once. Power
+        still follows the HVAC/occupancy gates during the window.
+      </div>
       <div class="rows">
         <label class="field check">
           <input
@@ -272,6 +278,13 @@ class AlEditorSheet extends LitElement {
     const problems = this._problems;
     return html`
       <div class="head">Night Owl 🦉 — motion-gated overnight diffusing</div>
+      <div class="hint">
+        Night Owl arms the diffuser overnight, but power only turns on while
+        the motion sensors have seen someone within the linger time — scent
+        only when somebody is actually up. "Outside scheduled hours" covers
+        the gap around your normal windows; "Fixed" uses the times you set.
+        Pick which nights it may run below (each night starts that evening).
+      </div>
       <div class="rows">
         <label class="field">
           <span>Mode</span>
@@ -368,6 +381,13 @@ class AlEditorSheet extends LitElement {
     .head {
       font-weight: 600;
       margin-bottom: 8px;
+    }
+    .hint {
+      font-size: 0.75em;
+      color: var(--secondary-text-color);
+      line-height: 1.35;
+      margin: -4px 0 10px;
+      max-width: 60ch;
     }
     .rows {
       display: flex;
