@@ -6,7 +6,6 @@ from datetime import timedelta
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from .const import (
     DOMAIN,
-    DEFAULT_DIFFUSE_TIME,
     DEFAULT_WORK_DURATION,
     DEFAULT_PAUSE_DURATION,
 )
@@ -51,15 +50,12 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         self.auth_coordinator = auth_coordinator
         self.device_id = device_id
         self.device_name = device_name
-        self._diffuse_time = DEFAULT_DIFFUSE_TIME
         self._work_duration = DEFAULT_WORK_DURATION
         self._pause_duration = DEFAULT_PAUSE_DURATION
-        self._schedule_cache = {}  # Cache schedules per day (0-6)
-        # Editor state for schedule entities
-        self._current_program = 1  # Currently selected program (1-5)
-        self._current_day = 0  # Currently selected day for viewing (0-6)
-        self._selected_days = [0]  # Days selected for saving (list of 0-6)
-        
+        # Injected by setup: () -> DeviceModel, used for the oil daily-work
+        # estimate. The coordinator no longer owns any schedule state.
+        self.schedule_provider = None
+
         # Oil tracking - cycle detection approach
         import time
         self._oil_tracking_active = False
@@ -95,14 +91,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "manual_runtime_hours": 0,
             "manual_rate_ml_per_hour": 0,
         }
-
-        # Snapshot of which programs were enabled before schedule_active turned off.
-        # Keyed by day number (0-6), value is list of 5 booleans.
-        self._saved_enabled_state = {}
-
-        # Per-day Night Owl preference (keyed by day 0-6, boolean).
-        # True = user wants Night Owl available for that day.
-        self._night_owl_per_day = {d: False for d in range(7)}
 
         self._command_page_visited = False
 
@@ -148,16 +136,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "pumpCount": 0,
             "runCount": 0,
         }
-
-    @property
-    def diffuse_time(self):
-        """Return the diffuse time."""
-        return self._diffuse_time
-
-    @diffuse_time.setter
-    def diffuse_time(self, value):
-        """Set the diffuse time."""
-        self._diffuse_time = value
 
     @property
     def work_duration(self):
@@ -253,30 +231,9 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             for key in self._oil_calibration:
                 if key in calibration:
                     self._oil_calibration[key] = calibration[key]
-
-        saved_enabled = oil_state.get("saved_enabled_state", {})
-        if isinstance(saved_enabled, dict):
-            self._saved_enabled_state = {
-                int(k): v for k, v in saved_enabled.items()
-                if isinstance(v, list)
-            }
-
-        night_owl = oil_state.get("night_owl_per_day", {})
-        if isinstance(night_owl, dict):
-            for k, v in night_owl.items():
-                day = int(k)
-                if 0 <= day <= 6 and isinstance(v, bool):
-                    self._night_owl_per_day[day] = v
-
-    def get_night_owl_day(self, day: int) -> bool:
-        """Return Night Owl preference for a given day (0=Sun … 6=Sat)."""
-        return self._night_owl_per_day.get(day, False)
-
-    def set_night_owl_day(self, day: int, enabled: bool):
-        """Set Night Owl preference for a given day and persist."""
-        if 0 <= day <= 6:
-            self._night_owl_per_day[day] = enabled
-            self._request_oil_state_save()
+        # Legacy payloads also carried saved_enabled_state / night_owl_per_day;
+        # those now live in the schedule model (imported by migration.py) and
+        # are intentionally ignored here.
 
     def update_oil_tracking(
         self,
@@ -420,10 +377,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "fill_date": self._oil_calibration.get("fill_date"),
         }
     
-    def get_oil_events_log(self):
-        """Get the full event log for debugging."""
-        return self._oil_events.copy()
-    
     def set_accumulated_work_seconds(self, seconds):
         """Set accumulated work seconds (for restoring state)."""
         self._accumulated_work_seconds = seconds
@@ -453,10 +406,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("Oil calibration updated: %s", self._oil_calibration)
         self._request_oil_state_save()
     
-    def perform_oil_calibration(self):
-        """Backward-compatible calibration call (now uses finalize)."""
-        return self.finalize_calibration()
-
     def get_calibration_state(self):
         """Return the current calibration state."""
         return self._oil_calibration.get("calibration_state", "Idle")
@@ -701,44 +650,37 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             return 0
 
     def get_schedule_daily_work_seconds(self):
-        """Estimate expected work seconds per day from the schedule matrix."""
+        """Estimate expected work seconds per day from the schedule model.
+
+        Uses the injected ``schedule_provider`` (returns the DeviceModel).
+        Index 0 = Monday (canonical), which only feeds a per-day average for
+        the oil estimate, so ordering is irrelevant to consumers.
+        """
         day_seconds = [0.0] * 7
 
-        if not self._schedule_cache:
+        model = self.schedule_provider() if self.schedule_provider else None
+        if model is None:
             return day_seconds
 
-        for day, programs in self._schedule_cache.items():
-            if day < 0 or day > 6:
-                continue
-
+        for day, day_sched in model.schedule.days.items():
             total_day_seconds = 0.0
-            for program in programs:
-                if program.get("enabled", 0) != 1:
+            for window in day_sched.windows:
+                if not window.enabled or window.work_sec <= 0:
                     continue
 
-                start_time = program.get("start_time", "00:00")
-                end_time = program.get("end_time", "23:59")
-                work_sec = int(program.get("work_sec", 0) or 0)
-                pause_sec = int(program.get("pause_sec", 0) or 0)
+                start_sec = self._parse_time_to_seconds(window.start)
+                end_sec = self._parse_time_to_seconds(window.end)
+                span = end_sec - start_sec
+                if span <= 0:
+                    span += 24 * 3600
 
-                if work_sec <= 0:
-                    continue
-
-                start_sec = self._parse_time_to_seconds(start_time)
-                end_sec = self._parse_time_to_seconds(end_time)
-                window = end_sec - start_sec
-                if window <= 0:
-                    # Crosses midnight, treat as next-day
-                    window += 24 * 3600
-
-                cycle = work_sec + max(pause_sec, 0)
+                cycle = window.work_sec + max(window.pause_sec, 0)
                 if cycle <= 0:
                     continue
 
-                duty_cycle = work_sec / cycle
-                total_day_seconds += window * duty_cycle
+                total_day_seconds += span * (window.work_sec / cycle)
 
-            day_seconds[day] = total_day_seconds
+            day_seconds[int(day)] = total_day_seconds
 
         return day_seconds
 
@@ -788,11 +730,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
 
         return remaining / daily_usage_ml
     
-    def reset_oil_fill(self):
-        """Mark oil as just filled (resets runtime tracking)."""
-        self.start_calibration_measurement()
-        _LOGGER.info("Oil fill reset for %s.", self.device_id)
-    
     def get_oil_status(self):
         """Get comprehensive oil status for display."""
         remaining = self.get_estimated_oil_remaining()
@@ -837,173 +774,7 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "prev_work_duration": self._prev_work_duration,
             "prev_pause_duration": self._prev_pause_duration,
             "calibration": self._oil_calibration.copy(),
-            "saved_enabled_state": self._saved_enabled_state.copy(),
-            "night_owl_per_day": self._night_owl_per_day.copy(),
         }
-
-    async def fetch_work_time_settings(self, week_day=0):
-        """Fetch current work time settings from API."""
-        await self.auth_coordinator._ensure_login()
-
-        url = f"https://www.aroma-link.com/device/workTime/{self.device_id}?week={week_day}"
-
-        headers = {
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
-        }
-
-        try:
-            _LOGGER.debug(
-                "Fetching work time settings for device %s day %s (url=%s)",
-                self.device_id,
-                week_day,
-                url,
-            )
-            async with self.auth_coordinator.request(
-                "get",
-                url,
-                headers=headers,
-                timeout=15,
-            ) as response:
-                if response.status == 200:
-                    response_json = await response.json()
-                    _LOGGER.debug(
-                        "Work time response for device %s day %s: %s",
-                        self.device_id,
-                        week_day,
-                        response_json,
-                    )
-
-                    if response_json.get("code") == 200 and "data" in response_json and response_json["data"]:
-                        # Find the enabled setting (enabled: 1)
-                        for setting in response_json["data"]:
-                            if setting.get("enabled") == 1:
-                                self._work_duration = setting.get(
-                                    "workSec", self._work_duration)
-                                self._pause_duration = setting.get(
-                                    "pauseSec", self._pause_duration)
-                                _LOGGER.debug(
-                                    f"Found settings: work={self._work_duration}s, pause={self._pause_duration}s")
-                                return {
-                                    "work_duration": self._work_duration,
-                                    "pause_duration": self._pause_duration,
-                                    "week_day": week_day
-                                }
-
-                    _LOGGER.warning(
-                        f"No enabled work time settings found for device {self.device_id}")
-                    return None
-                elif response.status in [401, 403]:
-                    _LOGGER.warning(
-                        f"Authentication error on fetch_work_time_settings ({response.status}).")
-                    self.auth_coordinator.jsessionid = None
-                    return None
-                else:
-                    _LOGGER.error(
-                        f"Failed to fetch work time settings for device {self.device_id}: {response.status}")
-                    return None
-        except Exception as e:
-            _LOGGER.error(
-                f"Error fetching work time settings for device {self.device_id}: {e}")
-            return None
-
-    async def async_fetch_schedule(self, week_day):
-        """Fetch schedule for a day, using cache if available.
-        
-        Args:
-            week_day: Day of week (0=Monday, 1=Tuesday, ..., 6=Sunday)
-            
-        Returns:
-            List of 5 program dictionaries, or None on error.
-        """
-        # Check cache first
-        if week_day in self._schedule_cache:
-            _LOGGER.debug(f"Using cached schedule for day {week_day}")
-            return self._schedule_cache[week_day]
-        
-        # Fetch from API
-        return await self.async_refresh_schedule(week_day)
-    
-    async def async_refresh_schedule(self, week_day):
-        """Refresh schedule for a day from API (on-demand).
-
-        Also captures the user's intended P1-P4 enabled states so
-        automation restore logic always has the correct baseline.
-
-        Args:
-            week_day: Day of week (0=Monday, 1=Tuesday, ..., 6=Sunday)
-
-        Returns:
-            List of 5 program dictionaries, or None on error.
-        """
-        workset = await self.fetch_workset_for_day(week_day)
-        if workset:
-            self._schedule_cache[week_day] = workset
-            self.update_user_intent(week_day)
-            _LOGGER.debug(f"Cached schedule for day {week_day}")
-        return workset
-
-    async def async_fetch_all_schedules(self):
-        """Fetch schedules for all 7 days in parallel.
-        
-        Returns:
-            Dict mapping day (0-6) to list of 5 program dictionaries.
-        """
-        _LOGGER.debug(f"Fetching all schedules for device {self.device_id}")
-        
-        # Fetch all 7 days in parallel
-        tasks = [self.fetch_workset_for_day(day) for day in range(7)]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Process results and update cache
-        for day, result in enumerate(results):
-            if isinstance(result, Exception):
-                _LOGGER.error(f"Error fetching day {day}: {result}")
-            elif result:
-                self._schedule_cache[day] = result
-        
-        _LOGGER.info(f"Fetched all schedules for device {self.device_id}: {len(self._schedule_cache)} days cached")
-        self.update_user_intent()
-        return self._schedule_cache.copy()
-
-    def get_schedule_matrix(self):
-        """Return the cached schedule matrix (7 days × 5 programs).
-        
-        Returns:
-            Dict mapping day (0-6) to list of 5 program dictionaries.
-            Days without cached data return None.
-        """
-        return {day: self._schedule_cache.get(day) for day in range(7)}
-
-    def get_current_program_data(self):
-        """Get the current program data from cache for the selected day/program.
-        
-        Returns:
-            Dict with program settings, or None if not cached.
-        """
-        day = self._current_day
-        program = self._current_program
-        if day in self._schedule_cache and self._schedule_cache[day]:
-            programs = self._schedule_cache[day]
-            if 0 < program <= len(programs):
-                return programs[program - 1]
-        return None
-
-    def set_editor_program(self, day, program):
-        """Set the editor to a specific day and program.
-        
-        Args:
-            day: Day of week (0=Monday, 1=Tuesday, ..., 6=Sunday)
-            program: Program number (1-5)
-        """
-        self._current_day = day
-        self._current_program = program
-        # Also update selected_days to include this day by default
-        if day not in self._selected_days:
-            self._selected_days = [day]
-        _LOGGER.debug(f"Set editor to day {day}, program {program}")
-        # Notify listeners
-        self.async_update_listeners()
 
     async def fetch_workset_for_day(self, week_day=0):
         """Fetch full workset (all 5 programs) for a specific day.
@@ -1103,52 +874,22 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
                 f"Error fetching workset for device {self.device_id}: {e}")
             return None
 
-    async def set_workset(self, week_days, work_time_list, skip_refresh=False, updated_cache_data=None):
-        """Set workset schedule for specified days.
-        
-        Args:
-            week_days: List of day numbers (0=Monday, 1=Tuesday, ..., 6=Sunday)
-            work_time_list: List of 5 program dictionaries, each with:
-                - enabled: 0 or 1
-                - startTime: "HH:MM" format
-                - endTime: "HH:MM" format
-                - workDuration: string (seconds)
-                - pauseDuration: string (seconds)
-                - consistenceLevel: "1", "2", or "3" (A, B, or C)
-            skip_refresh: If True, skip the automatic refresh after save (for batch operations)
-            updated_cache_data: If provided, store this data in the schedule cache
-                instead of clearing it. Should be a list of program dicts in cache
-                format (start_time, end_time, work_sec, pause_sec, level, enabled).
-                
-        Returns:
-            True if successful, False otherwise
+    async def async_write_cloud_days(self, cloud_days, slot_payloads):
+        """Dumb transport: write 5 slot payloads to the given cloud days.
+
+        ``cloud_days`` use the CLOUD day convention (Sun=0). ``slot_payloads``
+        is the list of 5 wire dicts (CloudSlot.to_payload()). No cache, no
+        refresh, no retries — the reconciler owns policy. Returns True on a
+        200 response.
         """
         await self.auth_coordinator._ensure_login()
 
-        url = "https://www.aroma-link.com/device/workSet"
-
-        # Ensure we have exactly 5 programs
-        if len(work_time_list) < 5:
-            work_time_list = list(work_time_list)
-            while len(work_time_list) < 5:
-                work_time_list.append({
-                    "startTime": "00:00",
-                    "endTime": "23:59",
-                    "enabled": 0,
-                    "consistenceLevel": "1",
-                    "workDuration": "10",
-                    "pauseDuration": "120"
-                })
-        elif len(work_time_list) > 5:
-            work_time_list = work_time_list[:5]
-
         payload = {
-            "deviceId": str(self.device_id),
+            "deviceId": self.device_id,
             "type": "workTime",
-            "week": week_days,
-            "workTimeList": work_time_list
+            "week": list(cloud_days),
+            "workTimeList": list(slot_payloads),
         }
-
         headers = {
             "Content-Type": "application/json;charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
@@ -1157,211 +898,36 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
 
         try:
             _LOGGER.debug(
-                "Setting workset for device %s on days %s (payload=%s)",
-                self.device_id,
-                week_days,
-                payload,
+                "workSet write for device %s days=%s", self.device_id, cloud_days
             )
             async with self.auth_coordinator.request(
                 "post",
-                url,
+                "https://www.aroma-link.com/device/workSet",
                 json=payload,
                 headers=headers,
-                timeout=10,
+                timeout=15,
             ) as response:
+                body = await response.text()
                 if response.status == 200:
-                    response_json = await response.json()
                     _LOGGER.debug(
-                        "Workset save response for device %s: %s",
-                        self.device_id,
-                        response_json,
+                        "workSet response for device %s: %s", self.device_id, body[:200]
                     )
-                    if response_json.get("code") == 200:
-                        _LOGGER.info(
-                            f"Successfully set workset for device {self.device_id} to days {week_days}")
-                        for day in week_days:
-                            if updated_cache_data is not None:
-                                self._schedule_cache[day] = updated_cache_data
-                                _LOGGER.debug(f"Updated schedule cache for day {day} with fresh data")
-                            elif day in self._schedule_cache:
-                                del self._schedule_cache[day]
-                                _LOGGER.debug(f"Cleared schedule cache for day {day}")
-                        if not skip_refresh:
-                            await self.async_request_refresh()
-                        return True
-                    else:
-                        _LOGGER.error(
-                            f"API error setting workset: {response_json.get('msg', 'Unknown error')}")
-                        return False
-                elif response.status in [401, 403]:
+                    return True
+                if response.status in (401, 403):
                     _LOGGER.warning(
-                        f"Authentication error on set_workset ({response.status}).")
+                        "Authentication error on workSet write (%s).", response.status
+                    )
                     self.auth_coordinator.jsessionid = None
                     return False
-                else:
-                    _LOGGER.error(
-                        f"Failed to set workset for device {self.device_id}: {response.status}")
-                    return False
-        except Exception as e:
-            _LOGGER.error(f"Error setting workset for device {self.device_id}: {e}")
+                _LOGGER.error(
+                    "workSet write failed for device %s: HTTP %s",
+                    self.device_id,
+                    response.status,
+                )
+                return False
+        except Exception as err:
+            _LOGGER.error("workSet write error for device %s: %s", self.device_id, err)
             return False
-
-    def _cache_to_api_format(self, programs):
-        """Convert schedule cache format to set_workset API format."""
-        api_list = []
-        for prog in programs:
-            level_raw = prog.get("level", 1)
-            api_list.append({
-                "startTime": prog.get("start_time", "00:00"),
-                "endTime": prog.get("end_time", "23:59"),
-                "enabled": prog.get("enabled", 0),
-                "consistenceLevel": str(level_raw),
-                "workDuration": str(prog.get("work_sec", 10)),
-                "pauseDuration": str(prog.get("pause_sec", 120)),
-            })
-        return api_list
-
-    def _get_today_schedule_day(self):
-        """Return the schedule cache key for today (0=Sun .. 6=Sat)."""
-        from homeassistant.util import dt as dt_util
-        now = dt_util.now()
-        return (now.weekday() + 1) % 7
-
-    async def set_today_programs_enabled(self, enabled):
-        """Enable or disable P1-P4 on the device for today.
-
-        Always fetches fresh data from the API before modifying to ensure
-        we never overwrite other programs with stale cached data.
-
-        Args:
-            enabled: True to restore user's P1-P4 settings on device,
-                     False to disable P1-P4 on device (silent stop).
-
-        Returns:
-            True if the API call succeeded.
-        """
-        SCHEDULE_PROGRAMS = 4
-        day = self._get_today_schedule_day()
-
-        _LOGGER.info(
-            "set_today_programs_enabled called: enabled=%s, day=%s",
-            enabled, day
-        )
-
-        # Always fetch fresh from API to avoid pushing stale data for other programs
-        fresh_programs = await self.fetch_workset_for_day(day)
-        if not fresh_programs:
-            _LOGGER.warning("Could not fetch schedule for today (day %s), cannot toggle programs", day)
-            return False
-
-        for i, p in enumerate(fresh_programs):
-            _LOGGER.info(
-                "  Fetched P%d: enabled=%s, start=%s, end=%s, work=%s, pause=%s, level=%s",
-                i + 1, p.get("enabled"), p.get("start_time"), p.get("end_time"),
-                p.get("work_sec"), p.get("pause_sec"), p.get("level")
-            )
-
-        if day not in self._saved_enabled_state:
-            self._saved_enabled_state[day] = [
-                p.get("enabled", 0) == 1 for p in fresh_programs[:SCHEDULE_PROGRAMS]
-            ]
-            self._request_oil_state_save()
-
-        api_programs = self._cache_to_api_format(fresh_programs)
-        updated_cache = copy.deepcopy(fresh_programs)
-
-        if not enabled:
-            for i, prog in enumerate(api_programs[:SCHEDULE_PROGRAMS]):
-                prog["enabled"] = 0
-                updated_cache[i]["enabled"] = 0
-        else:
-            snapshot = self._saved_enabled_state[day]
-            for i, was_on in enumerate(snapshot):
-                api_programs[i]["enabled"] = 1 if was_on else 0
-                updated_cache[i]["enabled"] = 1 if was_on else 0
-
-        for i, p in enumerate(api_programs):
-            _LOGGER.info("  Pushing P%d: %s", i + 1, p)
-
-        return await self.set_workset([day], api_programs, skip_refresh=True, updated_cache_data=updated_cache)
-
-    async def set_program_enabled(self, day, program_num, enabled):
-        """Enable or disable a single program on the device.
-
-        Always fetches fresh data from the API before modifying to ensure
-        we never overwrite other programs with stale cached data.
-
-        Args:
-            day: Schedule day number (0=Sun .. 6=Sat).
-            program_num: Program number (1-5).
-            enabled: True to enable, False to disable.
-
-        Returns:
-            True if the API call succeeded.
-        """
-        _LOGGER.info(
-            "set_program_enabled called: day=%s, program=%s, enabled=%s",
-            day, program_num, enabled
-        )
-
-        # Always fetch fresh from API to avoid pushing stale data for other programs
-        fresh_programs = await self.fetch_workset_for_day(day)
-        if not fresh_programs:
-            _LOGGER.warning("Could not fetch schedule for day %s", day)
-            return False
-
-        # Log what we fetched so we can verify P1 data
-        for i, p in enumerate(fresh_programs):
-            _LOGGER.info(
-                "  Fetched P%d: enabled=%s, start=%s, end=%s, work=%s, pause=%s, level=%s",
-                i + 1, p.get("enabled"), p.get("start_time"), p.get("end_time"),
-                p.get("work_sec"), p.get("pause_sec"), p.get("level")
-            )
-
-        if program_num < 1 or program_num > len(fresh_programs):
-            _LOGGER.warning("Invalid program number %s", program_num)
-            return False
-
-        api_programs = self._cache_to_api_format(fresh_programs)
-        api_programs[program_num - 1]["enabled"] = 1 if enabled else 0
-
-        # Log what we're about to push
-        for i, p in enumerate(api_programs):
-            _LOGGER.info("  Pushing P%d: %s", i + 1, p)
-
-        updated_cache = copy.deepcopy(fresh_programs)
-        updated_cache[program_num - 1]["enabled"] = 1 if enabled else 0
-
-        return await self.set_workset([day], api_programs, skip_refresh=True, updated_cache_data=updated_cache)
-
-    def update_user_intent(self, day=None, force=False):
-        """Capture the user's intended P1-P4 enabled states from the cache.
-
-        Only fills in days whose intent hasn't been captured yet, unless
-        force=True (used when the user explicitly saves schedule changes
-        from the dashboard card).  This prevents automation-driven
-        enabled/disabled toggles from overwriting the real user intent.
-        """
-        SCHEDULE_PROGRAMS = 4
-        changed = False
-        if day is not None:
-            if force or day not in self._saved_enabled_state:
-                programs = self._schedule_cache.get(day, [])
-                if programs:
-                    self._saved_enabled_state[day] = [
-                        p.get("enabled", 0) == 1 for p in programs[:SCHEDULE_PROGRAMS]
-                    ]
-                    changed = True
-        else:
-            for d, programs in self._schedule_cache.items():
-                if force or d not in self._saved_enabled_state:
-                    if programs:
-                        self._saved_enabled_state[d] = [
-                            p.get("enabled", 0) == 1 for p in programs[:SCHEDULE_PROGRAMS]
-                        ]
-                        changed = True
-        if changed:
-            self._request_oil_state_save()
 
     def get_device_info(self):
         """Get device info for entity setup."""
@@ -1798,178 +1364,3 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             _LOGGER.error(f"Fan control error for device {self.device_id}: {e}")
             return False
 
-    async def set_scheduler(self, work_duration=None, pause_duration=None, week_days=None, enabled=True):
-        """Write work/pause durations to schedule slot 0.
-
-        With enabled=True the device runs the slot as a 00:00-23:59 schedule on
-        the given days, which makes it auto-toggle power on its own. With
-        enabled=False the durations are persisted but scheduled operation stays
-        off, so the device only runs when commanded via the power switch.
-        """
-        await self.auth_coordinator._ensure_login()
-
-        url = "https://www.aroma-link.com/device/workSet"
-
-        if week_days is None:
-            week_days = [0, 1, 2, 3, 4, 5, 6]  # Default to all days
-
-        # Use provided values or fall back to stored values
-        work_duration = work_duration if work_duration is not None else self._work_duration
-        pause_duration = pause_duration if pause_duration is not None else self._pause_duration
-
-        payload = {
-            "deviceId": self.device_id,
-            "type": "workTime",
-            "week": week_days,
-            "workTimeList": [
-                {
-                    "startTime": "00:00",
-                    "endTime": "23:59",
-                    "enabled": 1 if enabled else 0,
-                    "consistenceLevel": "1",
-                    "workDuration": str(work_duration),
-                    "pauseDuration": str(pause_duration)
-                },
-                {
-                    "startTime": "00:00",
-                    "endTime": "24:00",
-                    "enabled": 0,
-                    "consistenceLevel": "1",
-                    "workDuration": "10",
-                    "pauseDuration": "900"
-                },
-                {
-                    "startTime": "00:00",
-                    "endTime": "24:00",
-                    "enabled": 0,
-                    "consistenceLevel": "1",
-                    "workDuration": "10",
-                    "pauseDuration": "900"
-                },
-                {
-                    "startTime": "00:00",
-                    "endTime": "24:00",
-                    "enabled": 0,
-                    "consistenceLevel": "1",
-                    "workDuration": "10",
-                    "pauseDuration": "900"
-                },
-                {
-                    "startTime": "00:00",
-                    "endTime": "24:00",
-                    "enabled": 0,
-                    "consistenceLevel": "1",
-                    "workDuration": "10",
-                    "pauseDuration": "900"
-                }
-            ]
-        }
-
-        headers = {
-            "Content-Type": "application/json;charset=UTF-8",
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": f"https://www.aroma-link.com/device/command/{self.device_id}",
-        }
-
-        try:
-            _LOGGER.debug(
-                "Scheduler request for device %s (enabled=%s, payload=%s)",
-                self.device_id,
-                enabled,
-                payload,
-            )
-            async with self.auth_coordinator.request(
-                "post",
-                url,
-                json=payload,
-                headers=headers,
-                timeout=10,
-            ) as response:
-                if response.status == 200:
-                    response_text = await response.text()
-                    _LOGGER.debug(
-                        "Scheduler response for device %s: %s",
-                        self.device_id,
-                        response_text,
-                    )
-                    _LOGGER.info(
-                        f"Successfully set scheduler for device {self.device_id}")
-                    await self.async_request_refresh()
-                    return True
-                elif response.status in [401, 403]:
-                    _LOGGER.warning(
-                        f"Authentication error on set_scheduler ({response.status}).")
-                    self.auth_coordinator.jsessionid = None
-                    return False
-                else:
-                    _LOGGER.error(
-                        f"Failed to set scheduler for device {self.device_id}: {response.status}")
-                    return False
-        except Exception as e:
-            _LOGGER.error(f"Scheduler error for device {self.device_id}: {e}")
-            return False
-
-    async def run_diffuser(self, work_duration=None, pause_duration=None):
-        """Run the diffuser for a specific time."""
-        # Use default values if specific ones aren't provided
-        current_work_duration = work_duration if work_duration is not None else self._work_duration
-        current_pause_duration = pause_duration if pause_duration is not None else self._pause_duration
-
-        if current_work_duration <= 0 or current_pause_duration <= 0:
-            _LOGGER.warning(
-                "Cannot run device %s: work_duration=%d, pause_duration=%d (both must be > 0)",
-                self.device_id, current_work_duration, current_pause_duration
-            )
-            return False
-
-        buffertime = current_work_duration + 5  # Add buffer time
-
-        _LOGGER.info(
-            f"Setting up device {self.device_id} to run for {current_work_duration} seconds with {current_work_duration} second diffusion cycles and {current_pause_duration} second pauses")
-
-        # Set scheduler
-        if not await self.set_scheduler(current_work_duration, current_pause_duration):
-            _LOGGER.error(
-                f"Failed to set scheduler for device {self.device_id}")
-            return False
-
-        await asyncio.sleep(1)  # Allow time for scheduler settings to apply
-
-        if not await self.turn_on_off(True):
-            _LOGGER.error(f"Failed to turn on device {self.device_id}")
-            # Don't leave the 24/7 schedule armed when the run never started.
-            await self._disable_schedule(current_work_duration, current_pause_duration)
-            return False
-
-        _LOGGER.info(
-            f"Device {self.device_id} turned on. Will turn off automatically after {buffertime} seconds.")
-
-        # Schedule turn off after the specified time
-        async def turn_off_later():
-            await asyncio.sleep(buffertime)
-            _LOGGER.info(
-                f"Timer complete for device {self.device_id}. Attempting to turn off.")
-            # Disarm the schedule first so the device cannot re-activate itself
-            # between the off command and the schedule write (upstream issue #31).
-            await self._disable_schedule(current_work_duration, current_pause_duration)
-            if not await self.turn_on_off(False):
-                _LOGGER.error(
-                    f"Failed to automatically turn off device {self.device_id}")
-            else:
-                _LOGGER.info(
-                    f"Device {self.device_id} turned off successfully after timer")
-
-        self.hass.async_create_task(turn_off_later())
-
-        return True
-
-    async def _disable_schedule(self, work_duration, pause_duration):
-        """Disable schedule slot 0 while keeping the saved durations on the device."""
-        if await self.set_scheduler(work_duration, pause_duration, enabled=False):
-            _LOGGER.info(
-                f"Disabled schedule for device {self.device_id} after momentary run")
-            return True
-        _LOGGER.error(
-            f"Failed to disable schedule for device {self.device_id}; "
-            "the device may keep cycling until the schedule is cleared")
-        return False

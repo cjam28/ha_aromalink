@@ -1,186 +1,58 @@
-set_scheduler:
-  description: "Set the scheduler for the diffuser."
-  fields:
-    work_duration:
-      description: "The duration (in seconds) the diffuser will work during each cycle."
-      example: 300
-    pause_duration:
-      description: "The duration (in seconds) the diffuser will pause between cycles."
-      example: 600
-    week_days:
-      description: "List of weekdays (0-6, where 0 is Monday) for which the schedule applies."
-      example: [0, 1, 2, 3, 4, 5, 6]
-    device_id:
-      description: "The ID of the device to apply the schedule to. Required if multiple devices are available."
-      example: "device_12345"
-
-run_diffuser:
-  description: "Run the diffuser for a specific time."
-  fields:
-    work_duration:
-      description: "The duration (in seconds) the diffuser will work during each cycle."
-      example: 300
-    pause_duration:
-      description: "The duration (in seconds) the diffuser will pause between cycles."
-      example: 600
-    device_id:
-      description: "The ID of the device to run. Required if multiple devices are available."
-      example: "device_12345"
-
-load_workset:
-  description: "Load workset schedule from device and populate helper entities."
-  fields:
-    device_id:
-      description: "The ID of the device. Required if multiple devices are available."
-      example: "device_12345"
-    week_day:
-      description: "Day of week to load (0=Monday, 1=Tuesday, ..., 6=Sunday). Defaults to 0."
-      example: 0
-    helper_prefix:
-      description: "Prefix for helper entity IDs (e.g., 'aromalink_my_device'). If not provided, uses device name."
-      example: "aromalink_my_device"
-
-save_workset:
-  description: "Save workset schedule from helper entities to device."
-  fields:
-    device_id:
-      description: "The ID of the device. Required if multiple devices are available."
-      example: "device_12345"
-    week_days:
-      description: "List of weekdays to apply schedule to (0=Monday, 1=Tuesday, ..., 6=Sunday)."
-      example: [0, 1, 2, 3, 4, 5, 6]
-    helper_prefix:
-      description: "Prefix for helper entity IDs (e.g., 'aromalink_my_device'). Automatically created during setup if not provided."
-      example: "aromalink_my_device"
+# Aroma-Link services (v3).
+# Schedule editing happens through the Lovelace card / websocket API
+# (aroma_link/save_schedule); timed-run and oil services land with the
+# v3 service layer (see services.py).
 
 api_diagnostics:
-  description: "Call an Aroma-Link API endpoint for diagnostics and fire a response event."
+  name: API diagnostics
+  description: >-
+    Probe a raw Aroma-Link API endpoint for debugging. Fires an
+    aroma_link_integration_api_diagnostics event with the response.
   fields:
     path:
-      description: "API path to call (e.g., /device/deviceInfo/now/{device_id})."
-      example: "/device/deviceInfo/now/{device_id}"
+      name: Path
+      description: API path (e.g. /device/deviceInfo/12345) or full URL.
+      required: true
+      example: /device/deviceInfo/12345
+      selector:
+        text:
     method:
-      description: "HTTP method to use (GET or POST)."
-      example: "GET"
+      name: Method
+      description: HTTP method.
+      default: GET
+      selector:
+        select:
+          options:
+            - GET
+            - POST
     device_id:
-      description: "Device ID to substitute into {device_id} in the path or select a specific device."
-      example: "device_12345"
+      name: Device ID
+      description: Aroma-Link device id (required with multiple devices).
+      example: "12345"
+      selector:
+        text:
     params:
-      description: "Optional query parameters to include in the request."
-      example: {"timeout": 1000}
+      name: Query parameters
+      description: Optional query parameters (mapping).
+      selector:
+        object:
     data:
-      description: "Optional form data body for POST requests."
-      example: {"deviceId": "device_12345", "fan": 1}
+      name: Form data
+      description: Optional form-encoded body (mapping).
+      selector:
+        object:
     json:
-      description: "Optional JSON body for POST requests."
-      example: {"deviceId": "device_12345", "week": [0]}
+      name: JSON body
+      description: Optional JSON body (mapping).
+      selector:
+        object:
     log_response:
-      description: "Log the response in Home Assistant logs."
-      example: true
+      name: Log response
+      default: true
+      selector:
+        boolean:
     fire_event:
-      description: "Fire an event with the response payload (event type: aroma_link_integration_api_diagnostics)."
-      example: true
-
-set_editor_program:
-  description: "Set the schedule editor to a specific day and program. Used by dashboard cards to populate editor entities."
-  fields:
-    device_id:
-      description: "The ID of the device. Required if multiple devices are available."
-      example: "device_12345"
-    day:
-      description: "Day of week (0=Monday, 1=Tuesday, ..., 6=Sunday). Defaults to 0."
-      example: 0
-    program:
-      description: "Program number (1-5). Defaults to 1."
-      example: 1
-
-refresh_all_schedules:
-  description: "Refresh schedules for all 7 days from the API. Used to populate the full schedule matrix."
-  fields:
-    device_id:
-      description: "The ID of the device. Required if multiple devices are available."
-      example: "device_12345"
-
-save_schedule_batch:
-  description: "Save schedules directly to device - FAST batch operation. Bypasses entities and batches days with identical schedules into single API calls."
-  fields:
-    device_id:
-      description: "The ID of the device. Required if multiple devices are available."
-      example: "device_12345"
-    schedules:
-      description: "List of day schedules to save. Each item has 'day' (0-6) and 'programs' (list of 5 program objects with startTime, endTime, enabled, level, workSec, pauseSec)."
-      example:
-        - day: 0
-          programs:
-            - startTime: "09:00"
-              endTime: "17:00"
-              enabled: 1
-              level: "A"
-              workSec: 5
-              pauseSec: 900
-            - startTime: "00:00"
-              endTime: "23:59"
-              enabled: 0
-              level: "A"
-              workSec: 10
-              pauseSec: 120
-
-start_timed_run:
-  description: "Start a timed run - turn on the diffuser and automatically turn it off after the specified duration. Timer runs server-side and survives browser close."
-  fields:
-    device_id:
-      description: "The ID of the device. Required if multiple devices are available."
-      example: "device_12345"
-    duration_hours:
-      description: "Duration in hours (0.1-24). Defaults to 6 hours."
-      example: 6
-    work_sec:
-      description: "Optional work duration in seconds to apply before running."
-      example: 5
-    pause_sec:
-      description: "Optional pause duration in seconds to apply before running."
-      example: 900
-
-cancel_timed_run:
-  description: "Cancel an active timed run for a device. Does NOT turn off the device - only cancels the scheduled auto-off."
-  fields:
-    device_id:
-      description: "The ID of the device. Required if multiple devices are available."
-      example: "device_12345"
-
-get_timed_run_status:
-  description: "Get the status of active timed runs. Fires an event with the status data."
-  fields:
-    device_id:
-      description: "Optional device ID to filter status for a specific device."
-      example: "device_12345"
-
-reset_oil_runtime:
-  description: "Reset the cumulative runtime counter. Call this when you refill the oil to start fresh tracking."
-  fields:
-    device_id:
-      description: "The ID of the device. Required if multiple devices are available."
-      example: "device_12345"
-
-set_night_owl_active:
-  description: "Enable or disable the Night Owl program (P5) on the device for today. Used by automations to control P5 without toggling the user preference switch."
-  fields:
-    device_id:
-      description: "The ID of the device. Required if multiple devices are available."
-      example: "device_12345"
-    enabled:
-      description: "True to enable P5 on the device, false to disable."
-      example: true
-
-set_night_owl_day_preference:
-  description: "Set the user's Night Owl preference for specific days. Controls whether the Night Owl automation is eligible to run on those days."
-  fields:
-    device_id:
-      description: "The ID of the device. Required if multiple devices are available."
-      example: "device_12345"
-    days:
-      description: "List of day numbers (0=Sunday, 1=Monday, ..., 6=Saturday) to apply the preference to."
-      example: [0, 1, 2, 3, 4, 5, 6]
-    enabled:
-      description: "True to enable Night Owl for the selected days, false to disable."
-      example: true
+      name: Fire event
+      default: true
+      selector:
+        boolean:

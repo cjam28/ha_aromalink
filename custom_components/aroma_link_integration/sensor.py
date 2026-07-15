@@ -21,14 +21,11 @@ async def async_setup_entry(hass, entry, async_add_entities):
         
         # Add all the requested sensors
         entities.append(AromaLinkWorkStatusSensor(coordinator, entry, device_id, device_info["name"]))
-        entities.append(AromaLinkWorkRemainingTimeSensor(coordinator, entry, device_id, device_info["name"]))
-        entities.append(AromaLinkPauseRemainingTimeSensor(coordinator, entry, device_id, device_info["name"]))
         entities.append(AromaLinkOnCountSensor(coordinator, entry, device_id, device_info["name"]))
         entities.append(AromaLinkPumpCountSensor(coordinator, entry, device_id, device_info["name"]))
         entities.append(AromaLinkSignalStrengthSensor(coordinator, entry, device_id, device_info["name"]))
         entities.append(AromaLinkFirmwareVersionSensor(coordinator, entry, device_id, device_info["name"]))
         entities.append(AromaLinkLastUpdateSensor(coordinator, entry, device_id, device_info["name"]))
-        entities.append(AromaLinkScheduleMatrixSensor(coordinator, entry, device_id, device_info["name"]))
         entities.append(AromaLinkCumulativeRuntimeSensor(coordinator, entry, device_id, device_info["name"]))
         # Oil level sensors
         entities.append(AromaLinkOilLevelSensor(coordinator, entry, device_id, device_info["name"]))
@@ -140,46 +137,6 @@ class AromaLinkWorkStatusSensor(AromaLinkSensorBase):
             return "Paused"
         else:
             return "Unknown"
-
-class AromaLinkWorkRemainingTimeSensor(AromaLinkSensorBase):
-    """Sensor showing the remaining time in the current work cycle."""
-
-    def __init__(self, coordinator, entry, device_id, device_name):
-        """Initialize the work remaining time sensor."""
-        super().__init__(
-            coordinator, 
-            entry, 
-            device_id, 
-            device_name, 
-            "Work Remaining Time", 
-            icon="mdi:timer-outline",
-            unit=UnitOfTime.SECONDS
-        )
-
-    @property
-    def native_value(self):
-        """Return the remaining time in work cycle."""
-        return self.coordinator.data.get("workRemainTime")
-
-class AromaLinkPauseRemainingTimeSensor(AromaLinkSensorBase):
-    """Sensor showing the remaining time in the current pause cycle."""
-
-    def __init__(self, coordinator, entry, device_id, device_name):
-        """Initialize the pause remaining time sensor."""
-        super().__init__(
-            coordinator, 
-            entry, 
-            device_id, 
-            device_name, 
-            "Pause Remaining Time", 
-            icon="mdi:timer-pause-outline",
-            unit=UnitOfTime.SECONDS
-        )
-
-    @property
-    def native_value(self):
-        """Return the remaining time in pause cycle."""
-        return self.coordinator.data.get("pauseRemainTime")
 
 class AromaLinkOnCountSensor(AromaLinkSensorBase):
     """Sensor showing how many times the device has been turned on."""
@@ -316,76 +273,6 @@ class AromaLinkLastUpdateSensor(AromaLinkSensorBase):
             ["updateTime", "lastUpdate", "lastUpdateTime", "update_time", "updateTimestamp"],
         )
         return _parse_timestamp(value)
-
-
-class AromaLinkScheduleMatrixSensor(AromaLinkSensorBase):
-    """Sensor exposing the full schedule matrix as attributes for dashboard cards."""
-
-    def __init__(self, coordinator, entry, device_id, device_name):
-        """Initialize the schedule matrix sensor."""
-        super().__init__(
-            coordinator,
-            entry,
-            device_id,
-            device_name,
-            "Schedule Matrix",
-            icon="mdi:calendar-clock",
-        )
-
-    @property
-    def native_value(self):
-        """Return number of days with cached schedules."""
-        return len(self.coordinator._schedule_cache)
-
-    SCHEDULE_PROGRAMS = 4
-
-    @property
-    def extra_state_attributes(self):
-        """Return the full schedule matrix as attributes.
-
-        For P1-P4, uses _saved_enabled_state (user intent) so the card
-        shows green blocks even when the automation has temporarily
-        disabled programs on the device.
-        """
-        day_names = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
-        matrix = {}
-
-        for day_num in range(7):
-            day_name = day_names[day_num]
-            if day_num in self.coordinator._schedule_cache:
-                programs = self.coordinator._schedule_cache[day_num]
-                user_intent = self.coordinator._saved_enabled_state.get(day_num)
-                day_data = {}
-                for prog_num, prog in enumerate(programs, 1):
-                    if prog_num <= self.SCHEDULE_PROGRAMS:
-                        if user_intent and prog_num - 1 < len(user_intent):
-                            is_enabled = user_intent[prog_num - 1]
-                        else:
-                            is_enabled = prog.get("enabled", 0) == 1
-                    elif prog_num == 5:
-                        is_enabled = self.coordinator.get_night_owl_day(day_num)
-                    else:
-                        is_enabled = prog.get("enabled", 0) == 1
-                    day_data[f"program_{prog_num}"] = {
-                        "enabled": is_enabled,
-                        "start": prog.get("start_time", "00:00"),
-                        "end": prog.get("end_time", "23:59"),
-                        "work": prog.get("work_sec", 10),
-                        "pause": prog.get("pause_sec", 120),
-                        "level": ["A", "B", "C"][prog.get("level", 1) - 1] if prog.get("level") in [1, 2, 3] else "A",
-                    }
-                matrix[day_name] = day_data
-            else:
-                matrix[day_name] = None
-
-        return {
-            "matrix": matrix,
-            "current_day": self.coordinator._current_day,
-            "current_program": self.coordinator._current_program,
-            "selected_days": self.coordinator._selected_days,
-            "device_id": self.coordinator.device_id,
-            "night_owl_per_day": self.coordinator._night_owl_per_day.copy(),
-        }
 
 
 class AromaLinkCumulativeRuntimeSensor(AromaLinkSensorBase):

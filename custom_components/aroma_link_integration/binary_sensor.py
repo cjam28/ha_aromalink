@@ -1,173 +1,111 @@
-"""Binary sensor platform for Aroma-Link."""
-import logging
+"""Binary sensor platform for Aroma-Link.
+
+``scheduled_on`` is now TRUTHFUL: on means the device power is on AND the
+current time is inside an armed capability window (a normal schedule window,
+the Night Owl period, or a timed-run overlay) — i.e. the device is actually
+allowed to be diffusing right now.
+"""
 from datetime import timedelta
 
 from homeassistant.components.binary_sensor import (
-    BinarySensorEntity,
     BinarySensorDeviceClass,
+    BinarySensorEntity,
 )
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
+from .const import DOMAIN, EVENT_UPDATED
+from .entity import AromaLinkEntity
+from .models import active_window, night_owl_period
 
-_LOGGER = logging.getLogger(__name__)
-
-TIME_CHECK_INTERVAL = timedelta(seconds=30)
+UPDATE_INTERVAL = timedelta(seconds=30)
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Aroma-Link binary sensors based on a config entry."""
     data = hass.data[DOMAIN][entry.entry_id]
     device_coordinators = data["device_coordinators"]
+    store = data["store"]
 
-    entities = []
-    for device_id, coordinator in device_coordinators.items():
-        device_info = coordinator.get_device_info()
-        entities.append(
-            AromaLinkScheduledOnSensor(coordinator, entry, device_id, device_info["name"])
+    entities = [
+        AromaLinkScheduledOnSensor(
+            coordinator, entry, device_id, coordinator.device_name, store
         )
-
+        for device_id, coordinator in device_coordinators.items()
+    ]
     async_add_entities(entities)
 
 
-class AromaLinkScheduledOnSensor(CoordinatorEntity, BinarySensorEntity):
-    """Binary sensor that is ON when the current time falls within an enabled schedule window."""
+class AromaLinkScheduledOnSensor(AromaLinkEntity, BinarySensorEntity):
+    """True while the device is powered AND inside an armed window."""
 
     _attr_device_class = BinarySensorDeviceClass.RUNNING
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry, device_id, device_name):
-        super().__init__(coordinator)
-        self._entry = entry
-        self._device_id = device_id
-        self._name = f"{device_name} Scheduled On"
-        self._unique_id = f"{entry.data['username']}_{device_id}_scheduled_on"
-        self._attr_icon = "mdi:calendar-check"
-        self._unsub_timer = None
+    def __init__(self, coordinator, entry, device_id, device_name, store):
+        super().__init__(
+            coordinator, entry, device_id, device_name, "scheduled_on", "Scheduled On"
+        )
+        self._store = store
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
-        self._unsub_timer = async_track_time_interval(
-            self.hass, self._time_tick, TIME_CHECK_INTERVAL
+
+        def _on_updated(event):
+            if event.data.get("device_id") == str(self._device_id):
+                self.async_write_ha_state()
+
+        self.async_on_remove(self.hass.bus.async_listen(EVENT_UPDATED, _on_updated))
+        # Window boundaries don't emit events; tick to catch them promptly.
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass, lambda _now: self.async_write_ha_state(), UPDATE_INTERVAL
+            )
         )
 
-    async def async_will_remove_from_hass(self):
-        if self._unsub_timer:
-            self._unsub_timer()
-            self._unsub_timer = None
-        await super().async_will_remove_from_hass()
+    def _capability(self):
+        """Return (source, window_hit) for the current capability, or (None, None)."""
+        model = self._store.get_model(self._device_id)
+        now = dt_util.now()
 
-    async def _time_tick(self, _now=None):
-        """Re-evaluate state on each time tick."""
-        self.async_write_ha_state()
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
+        reconciler = (entry_data.get("reconcilers") or {}).get(str(self._device_id))
+        if reconciler is not None and reconciler.overlay is not None:
+            return "timed_run", None
 
-    @property
-    def name(self):
-        return self._name
+        window_hit = active_window(model, now)
+        if window_hit is not None:
+            return "window", window_hit
 
-    @property
-    def unique_id(self):
-        return self._unique_id
+        if night_owl_period(model, now):
+            return "night_owl", None
 
-    @property
-    def device_info(self):
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._entry.data['username']}_{self._device_id}")},
-            name=self.coordinator.device_name,
-            manufacturer="Aroma-Link",
-            model="Diffuser",
-        )
+        return None, None
 
     @property
     def is_on(self):
-        """Return True if current time is within any enabled program window for today."""
-        active = self._get_active_programs()
-        return len(active) > 0
+        power_on = bool(self.coordinator.data.get("state", False))
+        if not power_on:
+            return False
+        source, _ = self._capability()
+        return source is not None
 
     @property
     def extra_state_attributes(self):
-        active = self._get_active_programs()
+        source, window_hit = self._capability()
         attrs = {
-            "active_programs": [p["program_number"] for p in active],
-            "active_program_count": len(active),
+            "power": bool(self.coordinator.data.get("state", False)),
+            "source": source,
         }
-        if active:
-            attrs["current_window_start"] = active[0]["start_time"]
-            attrs["current_window_end"] = active[0]["end_time"]
-            attrs["current_work_sec"] = active[0]["work_sec"]
-            attrs["current_pause_sec"] = active[0]["pause_sec"]
-            attrs["current_level"] = active[0]["level"]
+        if window_hit is not None:
+            day, index, window = window_hit
+            attrs["active_window"] = {
+                "day": int(day),
+                "index": index,
+                "start": window.start,
+                "end": window.end,
+                "work_sec": window.work_sec,
+                "pause_sec": window.pause_sec,
+            }
         return attrs
-
-    SCHEDULE_PROGRAMS = 4  # Only P1-P4; P5 (Night Owl) is automation-controlled
-
-    def _get_active_programs(self):
-        """Return list of P1-P4 programs whose time window covers the current time.
-
-        Uses _saved_enabled_state (user intent) to decide which programs count
-        as "enabled", so the sensor stays accurate even when the automation has
-        temporarily disabled programs on the device.  Falls back to the cache's
-        enabled flag if user intent hasn't been captured yet.
-
-        P5 (Night Owl) is excluded because it uses a 00:00-23:59 window
-        and is toggled by automations, not the schedule.
-        """
-        now = dt_util.now()
-
-        # Convert Python weekday (Mon=0 .. Sun=6) to schedule convention (Sun=0 .. Sat=6)
-        schedule_day = (now.weekday() + 1) % 7
-
-        programs = self.coordinator._schedule_cache.get(schedule_day)
-        if not programs:
-            return []
-
-        user_intent = self.coordinator._saved_enabled_state.get(schedule_day)
-
-        current_minutes = now.hour * 60 + now.minute
-        active = []
-
-        for idx, prog in enumerate(programs[:self.SCHEDULE_PROGRAMS], 1):
-            if user_intent and idx - 1 < len(user_intent):
-                is_enabled = user_intent[idx - 1]
-            else:
-                is_enabled = prog.get("enabled", 0) == 1
-
-            if not is_enabled:
-                continue
-
-            start_str = prog.get("start_time", "00:00")
-            end_str = prog.get("end_time", "23:59")
-
-            start_min = self._parse_hhmm(start_str)
-            end_min = self._parse_hhmm(end_str)
-
-            if start_min <= end_min:
-                in_window = start_min <= current_minutes <= end_min
-            else:
-                in_window = current_minutes >= start_min or current_minutes <= end_min
-
-            if in_window:
-                level_raw = prog.get("level", 1)
-                level_label = ["A", "B", "C"][level_raw - 1] if level_raw in (1, 2, 3) else "A"
-                active.append({
-                    "program_number": idx,
-                    "start_time": start_str,
-                    "end_time": end_str,
-                    "work_sec": prog.get("work_sec", 10),
-                    "pause_sec": prog.get("pause_sec", 120),
-                    "level": level_label,
-                })
-
-        return active
-
-    @staticmethod
-    def _parse_hhmm(time_str):
-        """Parse 'HH:MM' to total minutes since midnight."""
-        try:
-            parts = time_str.split(":")
-            return int(parts[0]) * 60 + int(parts[1])
-        except (ValueError, IndexError, AttributeError):
-            return 0

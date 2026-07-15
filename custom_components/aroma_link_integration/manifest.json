@@ -4,7 +4,7 @@
   "after_dependencies": [],
   "codeowners": ["@cjam28", "@DalyMauldin", "@Memberapple"],
   "config_flow": true,
-  "dependencies": ["http"],
+  "dependencies": ["http", "websocket_api"],
   "documentation": "https://github.com/cjam28/homeassistant_aroma-link#readme",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/cjam28/homeassistant_aroma-link/issues",

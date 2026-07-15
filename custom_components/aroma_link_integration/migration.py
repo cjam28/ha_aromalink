@@ -183,6 +183,12 @@ async def async_import_legacy(
             continue
 
         model.night_owl = _seed_night_owl(slot5_by_day)
+        model.default_work_sec = _clamp(
+            legacy_dev.get("prev_work_duration"), WORK_SEC_MIN, WORK_SEC_MAX, 10
+        )
+        model.default_pause_sec = _clamp(
+            legacy_dev.get("prev_pause_duration"), PAUSE_SEC_MIN, PAUSE_SEC_MAX, 300
+        )
         # Preserve the configured linger default; nothing legacy maps to it.
         model.schedule.version = 1
         model.schedule.updated_at = dt_util.utcnow().isoformat()

@@ -230,6 +230,9 @@ class DeviceModel:
     night_owl: NightOwlSettings = field(default_factory=NightOwlSettings)
     schedule_enabled: bool = True   # gating-engine master switch
     night_owl_enabled: bool = True  # night-owl master switch
+    # Defaults used for timed runs and newly created windows.
+    default_work_sec: int = 10
+    default_pause_sec: int = 300
 
     def to_dict(self) -> dict:
         return {
@@ -237,6 +240,8 @@ class DeviceModel:
             "night_owl": self.night_owl.to_dict(),
             "schedule_enabled": self.schedule_enabled,
             "night_owl_enabled": self.night_owl_enabled,
+            "default_work_sec": self.default_work_sec,
+            "default_pause_sec": self.default_pause_sec,
         }
 
     @classmethod
@@ -246,6 +251,8 @@ class DeviceModel:
             night_owl=NightOwlSettings.from_dict(data.get("night_owl") or {}),
             schedule_enabled=bool(data.get("schedule_enabled", True)),
             night_owl_enabled=bool(data.get("night_owl_enabled", True)),
+            default_work_sec=int(data.get("default_work_sec", 10)),
+            default_pause_sec=int(data.get("default_pause_sec", 300)),
         )
 
 

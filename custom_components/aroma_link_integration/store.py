@@ -232,6 +232,22 @@ class AromaLinkStore:
         self._notify(str(device_id), "flags", model.schedule.version)
         return model.schedule.version
 
+    async def async_set_defaults(
+        self,
+        device_id: str,
+        work_sec: int | None = None,
+        pause_sec: int | None = None,
+    ) -> None:
+        """Update the default work/pause used for timed runs and new windows."""
+        model = self.get_model(device_id)
+        if work_sec is not None:
+            model.default_work_sec = int(work_sec)
+        if pause_sec is not None:
+            model.default_pause_sec = int(pause_sec)
+        self._device(device_id)["model"] = model.to_dict()
+        self._schedule_save()
+        self._notify(str(device_id), "flags", model.schedule.version)
+
     # ------------------------------------------------------------- sync status
 
     def get_sync(self, device_id: str) -> SyncStatus:

@@ -1,378 +1,119 @@
-"""Switch platform for Aroma-Link."""
-from homeassistant.components.switch import SwitchEntity
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+"""Switch platform for Aroma-Link.
 
-from .const import DOMAIN, CONF_DEVICE_ID
+v3 surface: Power and Fan drive the device directly (shielded command paths);
+Schedule Enabled and Night Owl are the persisted gating-engine master flags
+(store-backed — they never write device schedule slots).
+"""
+from homeassistant.components.switch import SwitchEntity
+
+from .const import DOMAIN, EVENT_UPDATED
+from .entity import AromaLinkEntity
+
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    """Set up Aroma-Link switch based on a config entry."""
+    """Set up Aroma-Link switches based on a config entry."""
     data = hass.data[DOMAIN][entry.entry_id]
     device_coordinators = data["device_coordinators"]
-    
+    store = data["store"]
+
     entities = []
     for device_id, coordinator in device_coordinators.items():
-        device_info = coordinator.get_device_info()
-        device_name = device_info["name"]
-        entities.append(AromaLinkSwitch(coordinator, entry, device_id, device_name))
+        device_name = coordinator.device_name
+        entities.append(AromaLinkPowerSwitch(coordinator, entry, device_id, device_name))
         entities.append(AromaLinkFanSwitch(coordinator, entry, device_id, device_name))
-        entities.append(AromaLinkProgramEnabled(coordinator, entry, device_id, device_name))
-        entities.append(AromaLinkScheduleActiveSwitch(coordinator, entry, device_id, device_name))
-        entities.append(AromaLinkNightOwlSwitch(coordinator, entry, device_id, device_name))
-        day_names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        for day_num, day_name in enumerate(day_names):
-            entities.append(AromaLinkProgramDaySwitch(coordinator, entry, device_id, device_name, day_num, day_name))
-    
+        entities.append(
+            AromaLinkFlagSwitch(
+                coordinator, entry, device_id, device_name, store,
+                suffix="schedule_active",
+                name_suffix="Schedule Enabled",
+                flag="schedule_enabled",
+                icon="mdi:calendar-check",
+            )
+        )
+        entities.append(
+            AromaLinkFlagSwitch(
+                coordinator, entry, device_id, device_name, store,
+                suffix="night_owl",
+                name_suffix="Night Owl",
+                flag="night_owl_enabled",
+                icon="mdi:owl",
+            )
+        )
+
     async_add_entities(entities)
 
-class AromaLinkSwitch(CoordinatorEntity, SwitchEntity):
-    """Representation of an Aroma-Link switch."""
+
+class AromaLinkPowerSwitch(AromaLinkEntity, SwitchEntity):
+    """Device power. The gating engine may correct manual flips."""
 
     def __init__(self, coordinator, entry, device_id, device_name):
-        """Initialize the switch."""
-        super().__init__(coordinator)
-        self._entry = entry
-        self._device_id = device_id
-        self._name = f"{device_name} Power"
-        self._unique_id = f"{entry.data['username']}_{device_id}_switch"
-
-    @property
-    def name(self):
-        """Return the name of the switch."""
-        return self._name
-
-    @property
-    def unique_id(self):
-        """Return a unique ID for this entity."""
-        return self._unique_id
+        super().__init__(coordinator, entry, device_id, device_name, "switch", "Power")
 
     @property
     def is_on(self):
-        """Return true if the switch is on."""
         return self.coordinator.data.get("state", False)
 
-    @property
-    def device_info(self):
-        """Return device information about this Aroma-Link device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._entry.data['username']}_{self._device_id}")},
-            name=self.coordinator.device_name,
-            manufacturer="Aroma-Link",
-            model="Diffuser",
-        )
-
     async def async_turn_on(self, **kwargs):
-        """Turn the switch on."""
         await self.coordinator.turn_on_off(True)
 
     async def async_turn_off(self, **kwargs):
-        """Turn the switch off."""
         await self.coordinator.turn_on_off(False)
 
 
-class AromaLinkFanSwitch(CoordinatorEntity, SwitchEntity):
-    """Representation of an Aroma-Link fan switch."""
+class AromaLinkFanSwitch(AromaLinkEntity, SwitchEntity):
+    """Exhaust fan."""
 
     def __init__(self, coordinator, entry, device_id, device_name):
-        """Initialize the fan switch."""
-        super().__init__(coordinator)
-        self._entry = entry
-        self._device_id = device_id
-        self._name = f"{device_name} Fan"
-        self._unique_id = f"{entry.data['username']}_{device_id}_fan"
-
-    @property
-    def name(self):
-        """Return the name of the fan switch."""
-        return self._name
-
-    @property
-    def unique_id(self):
-        """Return a unique ID for this entity."""
-        return self._unique_id
+        super().__init__(coordinator, entry, device_id, device_name, "fan", "Fan")
+        self._attr_icon = "mdi:fan"
 
     @property
     def is_on(self):
-        """Return true if the fan is on."""
         return self.coordinator.data.get("fan_state", False)
 
-    @property
-    def device_info(self):
-        """Return device information about this Aroma-Link device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._entry.data['username']}_{self._device_id}")},
-            name=self.coordinator.device_name,
-            manufacturer="Aroma-Link",
-            model="Diffuser",
-        )
-
     async def async_turn_on(self, **kwargs):
-        """Turn the fan on."""
         await self.coordinator.fan_control(True)
 
     async def async_turn_off(self, **kwargs):
-        """Turn the fan off."""
         await self.coordinator.fan_control(False)
 
 
-class AromaLinkProgramEnabled(CoordinatorEntity, SwitchEntity):
-    """Program enabled/disabled switch."""
+class AromaLinkFlagSwitch(AromaLinkEntity, SwitchEntity):
+    """Persisted master flag (schedule_enabled / night_owl_enabled)."""
 
-    _attr_entity_category = EntityCategory.CONFIG
+    def __init__(
+        self, coordinator, entry, device_id, device_name, store,
+        suffix, name_suffix, flag, icon,
+    ):
+        super().__init__(coordinator, entry, device_id, device_name, suffix, name_suffix)
+        self._store = store
+        self._flag = flag
+        self._attr_icon = icon
 
-    def __init__(self, coordinator, entry, device_id, device_name):
-        """Initialize."""
-        super().__init__(coordinator)
-        self._entry = entry
-        self._device_id = device_id
-        self._name = f"{device_name} Program Enabled"
-        self._unique_id = f"{entry.data['username']}_{device_id}_program_enabled"
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
 
-    @property
-    def name(self):
-        """Return the name of the switch."""
-        return self._name
+        def _on_updated(event):
+            if event.data.get("device_id") == str(self._device_id) and event.data.get(
+                "change"
+            ) in ("flags", "schedule"):
+                self.async_write_ha_state()
 
-    @property
-    def unique_id(self):
-        """Return a unique ID for this entity."""
-        return self._unique_id
-
-    @property
-    def is_on(self):
-        """Return true if the program is enabled."""
-        program_num = self.coordinator._current_program
-        day = self.coordinator._current_day
-        if day in self.coordinator._schedule_cache:
-            schedule = self.coordinator._schedule_cache[day]
-            if len(schedule) >= program_num:
-                return schedule[program_num - 1].get("enabled", 0) == 1
-        return False
-
-    @property
-    def device_info(self):
-        """Return device information about this Aroma-Link device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._entry.data['username']}_{self._device_id}")},
-            name=self.coordinator.device_name,
-            manufacturer="Aroma-Link",
-            model="Diffuser",
-        )
-
-    async def async_turn_on(self, **kwargs):
-        """Enable the current editor program and push to device."""
-        program_num = self.coordinator._current_program
-        day = self.coordinator._current_day
-        await self.coordinator.set_program_enabled(day, program_num, True)
-        self.async_write_ha_state()
-
-    async def async_turn_off(self, **kwargs):
-        """Disable the current editor program and push to device."""
-        program_num = self.coordinator._current_program
-        day = self.coordinator._current_day
-        await self.coordinator.set_program_enabled(day, program_num, False)
-        self.async_write_ha_state()
-
-
-class AromaLinkScheduleActiveSwitch(CoordinatorEntity, SwitchEntity):
-    """Switch to enable/disable P1-P4 on the device for today.
-
-    Tracks its own on/off state independently from the schedule cache.
-    The cache always reflects the user's intended configuration; this
-    switch controls what's actually running on the device.
-
-    ON  = user's intended P1-P4 enabled states are pushed to the device
-    OFF = all P1-P4 disabled on the device (silent stop, no beep)
-    """
-
-    def __init__(self, coordinator, entry, device_id, device_name):
-        super().__init__(coordinator)
-        self._entry = entry
-        self._device_id = device_id
-        self._name = f"{device_name} Schedule Active"
-        self._unique_id = f"{entry.data['username']}_{device_id}_schedule_active"
-        self._attr_icon = "mdi:calendar-check"
-        self._is_active = True
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def unique_id(self):
-        return self._unique_id
+        self.async_on_remove(self.hass.bus.async_listen(EVENT_UPDATED, _on_updated))
 
     @property
     def is_on(self):
-        return self._is_active
+        return getattr(self._store.get_model(self._device_id), self._flag)
 
-    @property
-    def device_info(self):
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._entry.data['username']}_{self._device_id}")},
-            name=self.coordinator.device_name,
-            manufacturer="Aroma-Link",
-            model="Diffuser",
-        )
-
-    @property
-    def extra_state_attributes(self):
-        day = self.coordinator._get_today_schedule_day()
-        snapshot = self.coordinator._saved_enabled_state.get(day, [])
-        intended_nums = [
-            i + 1 for i, on in enumerate(snapshot) if on
-        ]
-        return {
-            "schedule_day": day,
-            "intended_programs": intended_nums,
-            "device_active": self._is_active,
-        }
+    async def _set(self, value: bool):
+        await self._store.async_set_flags(self._device_id, **{self._flag: value})
+        entry_data = self.hass.data[DOMAIN][self._entry.entry_id]
+        reconciler = (entry_data.get("reconcilers") or {}).get(str(self._device_id))
+        if reconciler and self._flag == "night_owl_enabled":
+            reconciler.async_request_sync("flag_switch")
 
     async def async_turn_on(self, **kwargs):
-        """Restore user's intended P1-P4 on the device."""
-        if self._is_active:
-            return
-        self._is_active = True
-        await self.coordinator.set_today_programs_enabled(True)
-        self.async_write_ha_state()
+        await self._set(True)
 
     async def async_turn_off(self, **kwargs):
-        """Disable P1-P4 on the device (user intent preserved in HA)."""
-        if not self._is_active:
-            return
-        self._is_active = False
-        await self.coordinator.set_today_programs_enabled(False)
-        self.async_write_ha_state()
-
-
-class AromaLinkNightOwlSwitch(CoordinatorEntity, SwitchEntity):
-    """User preference toggle for Night Owl (after-hours) mode.
-
-    Reflects TODAY's per-day preference stored in the coordinator.
-    ON  = user wants Night Owl automation active today (P5 eligible)
-    OFF = Night Owl disabled for today
-
-    This switch does NOT make API calls. The automation blueprint reads
-    its state as a condition and uses set_night_owl_active to control P5.
-    """
-
-    PROGRAM_NUM = 5
-    DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-
-    def __init__(self, coordinator, entry, device_id, device_name):
-        super().__init__(coordinator)
-        self._entry = entry
-        self._device_id = device_id
-        self._name = f"{device_name} Night Owl"
-        self._unique_id = f"{entry.data['username']}_{device_id}_night_owl"
-        self._attr_icon = "mdi:weather-night"
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def unique_id(self):
-        return self._unique_id
-
-    @property
-    def is_on(self):
-        today = self.coordinator._get_today_schedule_day()
-        return self.coordinator.get_night_owl_day(today)
-
-    @property
-    def device_info(self):
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._entry.data['username']}_{self._device_id}")},
-            name=self.coordinator.device_name,
-            manufacturer="Aroma-Link",
-            model="Diffuser",
-        )
-
-    @property
-    def extra_state_attributes(self):
-        today = self.coordinator._get_today_schedule_day()
-        programs = self.coordinator._schedule_cache.get(today, [])
-        p5 = programs[self.PROGRAM_NUM - 1] if len(programs) >= self.PROGRAM_NUM else {}
-        per_day = {
-            self.DAY_NAMES[d]: self.coordinator.get_night_owl_day(d)
-            for d in range(7)
-        }
-        return {
-            "schedule_day": today,
-            "program": self.PROGRAM_NUM,
-            "start_time": p5.get("start_time", "unknown"),
-            "end_time": p5.get("end_time", "unknown"),
-            "device_id": str(self._device_id),
-            "per_day": per_day,
-        }
-
-    async def async_turn_on(self, **kwargs):
-        """Enable Night Owl preference for today (no API call)."""
-        today = self.coordinator._get_today_schedule_day()
-        if self.coordinator.get_night_owl_day(today):
-            return
-        self.coordinator.set_night_owl_day(today, True)
-        self.async_write_ha_state()
-
-    async def async_turn_off(self, **kwargs):
-        """Disable Night Owl preference for today (no API call)."""
-        today = self.coordinator._get_today_schedule_day()
-        if not self.coordinator.get_night_owl_day(today):
-            return
-        self.coordinator.set_night_owl_day(today, False)
-        self.async_write_ha_state()
-
-
-class AromaLinkProgramDaySwitch(CoordinatorEntity, SwitchEntity):
-    """Day selection switch (one per day)."""
-
-    _attr_entity_category = EntityCategory.CONFIG
-
-    def __init__(self, coordinator, entry, device_id, device_name, day_num, day_name):
-        """Initialize."""
-        super().__init__(coordinator)
-        self._entry = entry
-        self._device_id = device_id
-        self._day_num = day_num
-        self._day_name = day_name
-        self._name = f"{device_name} Program {day_name}"
-        self._unique_id = f"{entry.data['username']}_{device_id}_program_day_{day_num}"
-
-    @property
-    def name(self):
-        """Return the name of the switch."""
-        return self._name
-
-    @property
-    def unique_id(self):
-        """Return a unique ID for this entity."""
-        return self._unique_id
-
-    @property
-    def is_on(self):
-        """Return true if the day is selected."""
-        return self._day_num in self.coordinator._selected_days
-
-    @property
-    def device_info(self):
-        """Return device information about this Aroma-Link device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._entry.data['username']}_{self._device_id}")},
-            name=self.coordinator.device_name,
-            manufacturer="Aroma-Link",
-            model="Diffuser",
-        )
-
-    async def async_turn_on(self, **kwargs):
-        """Select this day."""
-        if self._day_num not in self.coordinator._selected_days:
-            self.coordinator._selected_days.append(self._day_num)
-            self.coordinator._selected_days.sort()
-        self.async_write_ha_state()
-
-    async def async_turn_off(self, **kwargs):
-        """Deselect this day."""
-        if self._day_num in self.coordinator._selected_days:
-            self.coordinator._selected_days.remove(self._day_num)
-        self.async_write_ha_state()
+        await self._set(False)
