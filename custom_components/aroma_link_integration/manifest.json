@@ -10,5 +10,5 @@
   "issue_tracker": "https://github.com/cjam28/homeassistant_aroma-link/issues",
   "loggers": ["custom_components.aroma_link_integration"],
   "requirements": [],
-  "version": "3.0.1"
+  "version": "3.0.2"
 }

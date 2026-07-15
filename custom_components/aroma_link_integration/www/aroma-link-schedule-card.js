@@ -65,7 +65,10 @@ class AromaLinkScheduleCard extends LitElement {
   setConfig(config) {
     for (const key of Object.keys(config || {})) {
       if (!CONFIG_KEYS.has(key)) {
-        throw new Error(`aroma-link-schedule-card: unknown option "${key}"`);
+        // v2.x accepted arbitrary options (e.g. show_editor), so stale keys
+        // survive on dashboards; rejecting them would break the zero-edit
+        // upgrade promise. Ignore with a warning instead.
+        console.warn(`aroma-link-schedule-card: ignoring unknown option "${key}"`);
       }
     }
     if (config.devices && !Array.isArray(config.devices)) {
