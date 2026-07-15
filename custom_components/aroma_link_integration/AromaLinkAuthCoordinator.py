@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 import aiohttp
 from yarl import URL
+from homeassistant.components import persistent_notification
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -67,7 +68,8 @@ class AromaLinkAuthCoordinator(DataUpdateCoordinator):
             error,
         )
         try:
-            self.hass.components.persistent_notification.async_create(
+            persistent_notification.async_create(
+                self.hass,
                 "SSL verification failed for Aroma-Link. The integration "
                 "is now bypassing certificate checks to keep working. "
                 "You can re-enable verification in integration options.",

@@ -39,51 +39,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
     
     async_add_entities(entities)
 
-class AromaLinkDiffuseTimeNumber(NumberEntity):
-    """Representation of an Aroma-Link diffuse time setting."""
-
-    def __init__(self, coordinator, entry, device_id, device_name):
-        """Initialize the number entity."""
-        self._coordinator = coordinator
-        self._entry = entry
-        self._device_id = device_id
-        self._name = f"{device_name} Diffuse Time"
-        self._unique_id = f"{entry.data['username']}_{device_id}_diffuse_time"
-        self._attr_native_min_value = 10  # Minimum 10 seconds
-        self._attr_native_max_value = 3600  # Maximum 1 hour
-        self._attr_native_step = 10  # 10 second steps
-        self._attr_native_unit_of_measurement = "seconds"
-
-    @property
-    def name(self):
-        """Return the name of the number entity."""
-        return self._name
-
-    @property
-    def unique_id(self):
-        """Return a unique ID for this entity."""
-        return self._unique_id
-
-    @property
-    def native_value(self):
-        """Return the current value."""
-        return self._coordinator.diffuse_time
-
-    @property
-    def device_info(self):
-        """Return device information about this Aroma-Link device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._entry.data['username']}_{self._device_id}")},
-            name=self._coordinator.device_name,
-            manufacturer="Aroma-Link",
-            model="Diffuser",
-        )
-
-    async def async_set_native_value(self, value):
-        """Set the diffuse time."""
-        self._coordinator.diffuse_time = int(value)
-        self.async_write_ha_state()
-
 class AromaLinkWorkDurationNumber(NumberEntity):
     """Representation of an Aroma-Link work duration setting."""
 
@@ -130,11 +85,6 @@ class AromaLinkWorkDurationNumber(NumberEntity):
             manufacturer="Aroma-Link",
             model="Diffuser",
         )
-
-    async def async_set_native_value(self, value):
-        """Set the work duration."""
-        self._coordinator.work_duration = int(value)
-        self.async_write_ha_state()
 
 class AromaLinkPauseDurationNumber(NumberEntity):
     """Representation of an Aroma-Link pause duration setting."""

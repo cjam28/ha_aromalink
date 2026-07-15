@@ -9,6 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 from homeassistant.components.http import StaticPathConfig
 import homeassistant.helpers.config_validation as cv
@@ -1027,7 +1028,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         duration_seconds = duration_hours * 3600
         end_time = hass.loop.time() + duration_seconds
         
-        cancel_callback = hass.helpers.event.async_call_later(
+        cancel_callback = async_call_later(
             hass,
             duration_seconds,
             lambda _: hass.async_create_task(_turn_off_device(device_id))
