@@ -99,6 +99,9 @@ class AromaLinkStore:
         self._hass = hass
         self._store: Store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry_id}")
         self._data: dict[str, Any] = {"devices": {}}
+        # Parsed-model cache: get_model is on hot paths (engine evaluation,
+        # entity renders); reconstructing the dataclass tree per call is waste.
+        self._model_cache: dict[str, DeviceModel] = {}
         # change listener: (device_id, change, version) -> None
         self._on_change: Callable[[str, str, int | None], None] | None = None
 
@@ -142,10 +145,18 @@ class AromaLinkStore:
     # ------------------------------------------------------------- model
 
     def get_model(self, device_id: str) -> DeviceModel:
+        key = str(device_id)
+        cached = self._model_cache.get(key)
+        if cached is not None:
+            return cached
         raw = self._device(device_id).get("model")
-        if raw is None:
-            return DeviceModel()
-        return DeviceModel.from_dict(raw)
+        model = DeviceModel() if raw is None else DeviceModel.from_dict(raw)
+        self._model_cache[key] = model
+        return model
+
+    def _set_model(self, device_id: str, model: DeviceModel) -> None:
+        self._device(device_id)["model"] = model.to_dict()
+        self._model_cache[str(device_id)] = model
 
     async def async_seed_device(
         self,
@@ -159,6 +170,7 @@ class AromaLinkStore:
         """Install an initial model for a device (migration / first sight)."""
         dev = self._device(device_id)
         dev["model"] = model.to_dict()
+        self._model_cache[str(device_id)] = model
         dev["sync"] = SyncStatus(state=SYNC_ERROR if import_pending else SYNC_PENDING).to_dict()
         dev["import_pending"] = import_pending
         if oil is not None:
@@ -188,7 +200,7 @@ class AromaLinkStore:
         model.schedule = schedule
         if night_owl is not None:
             model.night_owl = night_owl
-        self._device(device_id)["model"] = model.to_dict()
+        self._set_model(device_id, model)
         await self._async_mark_pending(device_id)
         self._schedule_save()
         self._notify(str(device_id), "schedule", new_version)
@@ -224,10 +236,10 @@ class AromaLinkStore:
         if changed_compile:
             model.schedule.version += 1
             model.schedule.updated_at = dt_util.utcnow().isoformat()
-            self._device(device_id)["model"] = model.to_dict()
+            self._set_model(device_id, model)
             await self._async_mark_pending(device_id)
         else:
-            self._device(device_id)["model"] = model.to_dict()
+            self._set_model(device_id, model)
         self._schedule_save()
         self._notify(str(device_id), "flags", model.schedule.version)
         return model.schedule.version
@@ -244,7 +256,7 @@ class AromaLinkStore:
             model.default_work_sec = int(work_sec)
         if pause_sec is not None:
             model.default_pause_sec = int(pause_sec)
-        self._device(device_id)["model"] = model.to_dict()
+        self._set_model(device_id, model)
         self._schedule_save()
         self._notify(str(device_id), "flags", model.schedule.version)
 

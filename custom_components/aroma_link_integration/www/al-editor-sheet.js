@@ -87,6 +87,11 @@ class AlEditorSheet extends LitElement {
     if (!this._draft || this.target === "night_owl") return [];
     const errors = validateWindow(this._draft);
     if (errors.length) return errors;
+    if (this._draft.enabled && this._slots.size > 1) {
+      // The same window written to several slots on one day always
+      // self-overlaps once enabled.
+      return ["Enabled window can only target one window slot per day"];
+    }
     const conflicts = [];
     for (const { day, index } of this._targets) {
       for (const c of findOverlaps(this.schedule, day, index, this._draft)) {

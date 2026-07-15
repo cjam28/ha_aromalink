@@ -48,6 +48,7 @@ export class DeviceStore extends EventTarget {
     this.error = null;
     this._unsubPromise = null;
     this._loading = false;
+    this._refreshQueued = false;
   }
 
   connect(hass) {
@@ -89,21 +90,36 @@ export class DeviceStore extends EventTarget {
   }
 
   async refresh() {
-    if (!this.hass || this._loading) return;
+    if (!this.hass) return;
+    if (this._loading) {
+      // Coalesce: a change arrived while a fetch is in flight — run once more
+      // after it resolves so the newer state is not dropped.
+      this._refreshQueued = true;
+      return;
+    }
     this._loading = true;
     try {
       const result = await api.getSchedule(this.hass, this.deviceId);
-      this.schedule = result.schedule;
-      this.nightOwl = result.night_owl;
-      this.flags = result.flags;
+      const incoming = result.schedule?.version ?? -1;
+      // Never roll back past state we already adopted (e.g. an optimistic
+      // save's result racing a slower, older fetch).
+      if (incoming >= this.version) {
+        this.schedule = result.schedule;
+        this.nightOwl = result.night_owl;
+        this.flags = result.flags;
+        this.version = incoming;
+      }
       this.sync = result.sync;
-      this.version = result.schedule?.version ?? -1;
       this.error = null;
     } catch (err) {
       this.error = err?.message || String(err);
     } finally {
       this._loading = false;
       this._emit();
+      if (this._refreshQueued) {
+        this._refreshQueued = false;
+        this.refresh();
+      }
     }
   }
 

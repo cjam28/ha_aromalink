@@ -369,8 +369,7 @@ def compile_week(
         compiled[day] = slots
 
     if overlay is not None and overlay_day is not None:
-        slots = list(compiled[overlay_day])
-        slots[NIGHT_OWL_SLOT_INDEX] = CloudSlot(
+        overlay_slot = CloudSlot(
             start_time="00:00",
             end_time="23:59",
             enabled=1,
@@ -378,7 +377,13 @@ def compile_week(
             work_duration=str(overlay.work_sec),
             pause_duration=str(overlay.pause_sec),
         )
-        compiled[overlay_day] = slots
+        # Arm the start day AND the following day so a run crossing midnight
+        # keeps diffusing (runs are capped at 24h, so two days always cover
+        # it). Harmless superset: power gating decides when it actually runs.
+        for day in (overlay_day, overlay_day.next):
+            slots = list(compiled[day])
+            slots[NIGHT_OWL_SLOT_INDEX] = overlay_slot
+            compiled[day] = slots
 
     return compiled
 

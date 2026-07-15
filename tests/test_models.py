@@ -136,13 +136,15 @@ def test_compile_night_owl_master_off_disables_all():
     assert all(compiled[d][4].enabled == 0 for d in Weekday)
 
 
-def test_compile_overlay_replaces_slot5_today_only():
+def test_compile_overlay_arms_start_day_and_next():
     m = model_with(days={Weekday.MON: DaySchedule(night_owl=False)})
     compiled = compile_week(m, overlay=RunOverlay(work_sec=7, pause_sec=60), overlay_day=Weekday.MON)
     mon5 = compiled[Weekday.MON][4]
     assert (mon5.enabled, mon5.work_duration, mon5.pause_duration) == (1, "7", "60")
     assert (mon5.start_time, mon5.end_time) == ("00:00", "23:59")
-    assert compiled[Weekday.TUE][4].enabled == 0
+    # Next day is armed too so a run crossing midnight keeps diffusing.
+    assert compiled[Weekday.TUE][4].enabled == 1
+    assert compiled[Weekday.WED][4].enabled == 0
 
 
 def test_slot_payload_wire_shape():

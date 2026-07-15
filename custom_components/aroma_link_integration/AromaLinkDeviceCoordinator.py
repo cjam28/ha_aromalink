@@ -1,5 +1,4 @@
 import asyncio
-import copy
 import logging
 import time
 from datetime import timedelta
@@ -136,26 +135,6 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
             "pumpCount": 0,
             "runCount": 0,
         }
-
-    @property
-    def work_duration(self):
-        """Return the work duration."""
-        return self._work_duration
-
-    @work_duration.setter
-    def work_duration(self, value):
-        """Set the work duration."""
-        self._work_duration = value
-
-    @property
-    def pause_duration(self):
-        """Return the pause duration."""
-        return self._pause_duration
-
-    @pause_duration.setter
-    def pause_duration(self, value):
-        """Set the pause duration."""
-        self._pause_duration = value
 
     # ============================================================
     # OIL TRACKING METHODS (cycle detection from workRemain/pauseRemain)

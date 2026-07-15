@@ -251,6 +251,20 @@ async def ws_get_status(hass, connection, msg):
 
     data = coordinator.data or {}
     desired = engine.desired_power() if engine else None
+    raw_oil = coordinator.get_oil_status() or {}
+    oil = {
+        # Stable card contract, mapped from the coordinator's internal names.
+        "level_pct": raw_oil.get("level_percent"),
+        "remaining_ml": raw_oil.get("estimated_remaining_ml"),
+        "days_remaining": raw_oil.get("estimated_days_remaining_schedule"),
+        "usage_rate_ml_per_hour": raw_oil.get("usage_rate_ml_per_hour"),
+        "calibrated": raw_oil.get("calibrated"),
+        "calibration_state": raw_oil.get("calibration_state"),
+        "fill_date": raw_oil.get("fill_date"),
+        "bottle_capacity_ml": raw_oil.get("bottle_capacity_ml"),
+        "fill_volume_ml": raw_oil.get("fill_volume_ml"),
+        "runtime_since_fill_hours": raw_oil.get("runtime_since_fill_hours"),
+    }
     connection.send_result(
         msg["id"],
         {
@@ -261,7 +275,7 @@ async def ws_get_status(hass, connection, msg):
             "desired_power": desired,
             "gating": engine.snapshot() if engine else {},
             "timed_run": timed_runs.status(device_id) if timed_runs else None,
-            "oil": coordinator.get_oil_status(),
+            "oil": oil,
             "sync": store.get_sync(device_id).to_dict(),
         },
     )

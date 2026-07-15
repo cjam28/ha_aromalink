@@ -108,6 +108,9 @@ class TimedRunManager:
 
         # Slot-5 overlay guarantees power-on diffuses even outside windows;
         # it is self-healing (cleared overlay restores the canonical compile).
+        # Note: the overlay write reaches the device asynchronously (cloud ack
+        # ~15-20s), so a run started outside any window begins diffusing once
+        # that write lands — same latency the pre-v3 run flow had.
         reconciler = self._reconcilers.get(device_id)
         if reconciler:
             await reconciler.async_set_overlay(RunOverlay(work_sec=work, pause_sec=pause))
@@ -153,8 +156,15 @@ class TimedRunManager:
     # ------------------------------------------------------------- internals
 
     def _arm(self, device_id: str, ends_at) -> None:
+        expected_ends_at = ends_at.isoformat()
+
         async def _on_expire(_now):
             self._timers.pop(device_id, None)
+            # A run started while this expiry was in flight replaces the
+            # store entry; only tear down if OUR run is still the active one.
+            current = self._store.get_timed_run(device_id)
+            if current is None or current.ends_at != expected_ends_at:
+                return
             await self._expire(device_id)
 
         self._timers[device_id] = async_track_point_in_time(

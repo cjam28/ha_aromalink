@@ -64,25 +64,30 @@ class AlOilPanel extends LitElement {
           .value=${live(String(this._manual[key] ?? ""))}
           @change=${(e) => {
             const next = { ...this._manual, [key]: e.target.value };
+            // Only recalc once every participating field holds a real value —
+            // an empty End must not be read as "bottle is empty".
+            const haveEnd = next.end !== "" && !Number.isNaN(Number(next.end));
             const nums = {
               start: Number(next.start) || 0,
-              end: next.end === "" ? -1 : Number(next.end),
+              end: haveEnd ? Number(next.end) : 0,
               hours: Number(next.hours) || 0,
               rate: Number(next.rate) || 0,
             };
-            const recalced = recalcManualOil(
-              { start: nums.start, end: Math.max(nums.end, 0), hours: nums.hours, rate: nums.rate },
-              key
-            );
-            this._manual = {
-              start: next.start,
-              end: key === "rate" ? String(recalced.end.toFixed(1)) : next.end,
-              hours: next.hours,
-              rate:
-                key !== "rate" && recalced.rate > 0
-                  ? String(recalced.rate.toFixed(3))
-                  : next.rate,
-            };
+            if (key === "rate" ? nums.rate > 0 && nums.start > 0 && nums.hours > 0
+                               : haveEnd && nums.start > 0 && nums.hours > 0) {
+              const recalced = recalcManualOil(nums, key);
+              this._manual = {
+                start: next.start,
+                end: key === "rate" ? String(recalced.end.toFixed(1)) : next.end,
+                hours: next.hours,
+                rate:
+                  key !== "rate" && recalced.rate > 0
+                    ? String(recalced.rate.toFixed(3))
+                    : next.rate,
+              };
+            } else {
+              this._manual = next;
+            }
           }}
         />
       </label>

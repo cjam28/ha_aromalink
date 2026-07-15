@@ -223,7 +223,17 @@ class AromaLinkScheduleCard extends LitElement {
     this._toast = null;
     if (!deviceId) return;
     const store = this._stores.get(deviceId);
-    if (store && (await store.undo())) this._showToast("Undone");
+    if (!store) return;
+    try {
+      if (await store.undo()) this._showToast("Undone");
+    } catch (err) {
+      if (err?.code === "version_conflict") {
+        await store.handleConflict();
+        this._showToast("Schedule changed elsewhere — reloaded");
+      } else {
+        this._showToast(`Undo failed: ${err?.message || err}`);
+      }
+    }
   }
 
   async _syncNow(deviceId) {
