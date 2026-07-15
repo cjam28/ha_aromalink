@@ -5,6 +5,7 @@ created schedule windows. They never write the device directly — per-window
 durations live in the schedule model and are pushed by the reconciler.
 """
 from homeassistant.components.number import NumberEntity
+from homeassistant.core import callback
 
 from .const import DOMAIN, EVENT_UPDATED
 from .entity import AromaLinkEntity
@@ -64,6 +65,7 @@ class AromaLinkDefaultNumber(AromaLinkEntity, NumberEntity):
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
 
+        @callback
         def _on_updated(event):
             if event.data.get("device_id") == str(self._device_id) and event.data.get(
                 "change"

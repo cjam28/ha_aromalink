@@ -11,6 +11,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
+from homeassistant.core import callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
@@ -52,16 +53,19 @@ class AromaLinkScheduledOnSensor(AromaLinkEntity, BinarySensorEntity):
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
 
+        @callback
         def _on_updated(event):
             if event.data.get("device_id") == str(self._device_id):
                 self.async_write_ha_state()
 
+        @callback
+        def _tick(_now):
+            self.async_write_ha_state()
+
         self.async_on_remove(self.hass.bus.async_listen(EVENT_UPDATED, _on_updated))
         # Window boundaries don't emit events; tick to catch them promptly.
         self.async_on_remove(
-            async_track_time_interval(
-                self.hass, lambda _now: self.async_write_ha_state(), UPDATE_INTERVAL
-            )
+            async_track_time_interval(self.hass, _tick, UPDATE_INTERVAL)
         )
 
     def _capability(self):

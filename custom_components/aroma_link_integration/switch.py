@@ -5,6 +5,7 @@ Schedule Enabled and Night Owl are the persisted gating-engine master flags
 (store-backed — they never write device schedule slots).
 """
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.core import callback
 
 from .const import DOMAIN, EVENT_UPDATED
 from .entity import AromaLinkEntity
@@ -93,6 +94,7 @@ class AromaLinkFlagSwitch(AromaLinkEntity, SwitchEntity):
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
 
+        @callback
         def _on_updated(event):
             if event.data.get("device_id") == str(self._device_id) and event.data.get(
                 "change"
