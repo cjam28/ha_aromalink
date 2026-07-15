@@ -26,6 +26,13 @@
     "step": {
       "init": {
         "title": "Aroma-Link Options",
+        "menu_options": {
+          "general": "General settings (polling, SSL, logging)",
+          "gates": "Diffusing gates (HVAC, occupancy, motion)"
+        }
+      },
+      "general": {
+        "title": "General Settings",
         "description": "Configure polling and debug settings. ⚠️ Polling under 30 seconds may cause API rate limiting.",
         "data": {
           "poll_interval": "Polling Interval (seconds, 5-900)",
@@ -33,7 +40,27 @@
           "verify_ssl": "Verify SSL certificates",
           "allow_ssl_fallback": "Allow automatic SSL fallback"
         }
+      },
+      "gates": {
+        "title": "Diffusing Gates",
+        "description": "Pick the device whose gates you want to configure.",
+        "data": {
+          "device": "Device"
+        }
+      },
+      "gates_device": {
+        "title": "Gates for {device_name}",
+        "description": "Scheduled windows only diffuse while these gates pass; Night Owl runs after hours only while motion is detected. Leave a gate empty to disable it.",
+        "data": {
+          "climate_entity": "HVAC gate: climate entity (diffuse only while air is circulating)",
+          "occupancy_entity": "Occupancy gate: binary sensor (diffuse only while someone is home)",
+          "motion_entities": "Night Owl motion sensors (linked area)",
+          "hvac_on_delay_minutes": "HVAC must be active for (minutes) before diffusing"
+        }
       }
+    },
+    "abort": {
+      "no_devices": "No devices found on this entry."
     }
   }
 }

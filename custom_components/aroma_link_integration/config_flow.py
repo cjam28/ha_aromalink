@@ -3,6 +3,7 @@ import logging
 import json
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import aiohttp
 import ssl
@@ -313,27 +314,42 @@ class AromaLinkConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class AromaLinkOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle Aroma-Link options."""
+    """Handle Aroma-Link options: general settings + per-device gates."""
 
     def __init__(self, config_entry):
         """Initialize options flow."""
         self._config_entry = config_entry
+        self._gate_device_id = None
+
+    def _devices(self):
+        devices = self._config_entry.data.get("devices", [])
+        return [
+            (str(d["device_id"]), d.get("device_name", f"Device {d['device_id']}"))
+            for d in devices
+        ]
 
     async def async_step_init(self, user_input=None):
-        """Manage the options."""
+        """Top-level menu."""
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["general", "gates"],
+        )
+
+    async def async_step_general(self, user_input=None):
+        """General options (poll interval, SSL, logging)."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            new_options = {**self._config_entry.options, **user_input}
+            return self.async_create_entry(title="", data=new_options)
 
         options = self._config_entry.options
-        
-        # Handle migration from old minutes-based config
+
         current_poll = options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL_SECONDS)
-        # If value is very small (1-30), it's likely old minutes format - convert
         if current_poll <= 30:
+            # Migration from old minutes-based config
             current_poll = current_poll * 60
-        
+
         return self.async_show_form(
-            step_id="init",
+            step_id="general",
             data_schema=vol.Schema(
                 {
                     vol.Optional(
@@ -341,7 +357,7 @@ class AromaLinkOptionsFlowHandler(config_entries.OptionsFlow):
                         default=current_poll,
                         description={"suggested_value": current_poll},
                     ): vol.All(
-                        vol.Coerce(int), 
+                        vol.Coerce(int),
                         vol.Range(min=MIN_POLL_INTERVAL_SECONDS, max=MAX_POLL_INTERVAL_SECONDS)
                     ),
                     vol.Optional(
@@ -370,4 +386,76 @@ class AromaLinkOptionsFlowHandler(config_entries.OptionsFlow):
                 "min_poll": str(MIN_POLL_INTERVAL_SECONDS),
                 "max_poll": str(MAX_POLL_INTERVAL_SECONDS),
             },
+        )
+
+    async def async_step_gates(self, user_input=None):
+        """Pick which device's gates to edit."""
+        devices = self._devices()
+        if not devices:
+            return self.async_abort(reason="no_devices")
+        if len(devices) == 1:
+            self._gate_device_id = devices[0][0]
+            return await self.async_step_gates_device()
+
+        if user_input is not None:
+            self._gate_device_id = user_input["device"]
+            return await self.async_step_gates_device()
+
+        return self.async_show_form(
+            step_id="gates",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("device"): vol.In(
+                        {dev_id: name for dev_id, name in devices}
+                    ),
+                }
+            ),
+        )
+
+    async def async_step_gates_device(self, user_input=None):
+        """Edit one device's gates (HVAC / occupancy / motion / delay)."""
+        device_id = self._gate_device_id
+        gates_all = dict(self._config_entry.options.get("gates") or {})
+        current = dict(gates_all.get(device_id) or {})
+
+        if user_input is not None:
+            gates_all[device_id] = {
+                "climate_entity": user_input.get("climate_entity") or None,
+                "occupancy_entity": user_input.get("occupancy_entity") or None,
+                "motion_entities": user_input.get("motion_entities") or [],
+                "hvac_on_delay_minutes": user_input.get("hvac_on_delay_minutes", 1),
+            }
+            new_options = {**self._config_entry.options, "gates": gates_all}
+            return self.async_create_entry(title="", data=new_options)
+
+        schema = {
+            vol.Optional(
+                "climate_entity",
+                description={"suggested_value": current.get("climate_entity")},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="climate")
+            ),
+            vol.Optional(
+                "occupancy_entity",
+                description={"suggested_value": current.get("occupancy_entity")},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="binary_sensor")
+            ),
+            vol.Optional(
+                "motion_entities",
+                description={"suggested_value": current.get("motion_entities") or []},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
+            ),
+            vol.Optional(
+                "hvac_on_delay_minutes",
+                default=current.get("hvac_on_delay_minutes", 1),
+            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=60)),
+        }
+
+        device_name = dict(self._devices()).get(device_id, device_id)
+        return self.async_show_form(
+            step_id="gates_device",
+            data_schema=vol.Schema(schema),
+            description_placeholders={"device_name": device_name},
         )

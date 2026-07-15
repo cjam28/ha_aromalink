@@ -108,4 +108,8 @@ class AromaLinkScheduledOnSensor(AromaLinkEntity, BinarySensorEntity):
                 "work_sec": window.work_sec,
                 "pause_sec": window.pause_sec,
             }
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
+        engine = (entry_data.get("engines") or {}).get(str(self._device_id))
+        if engine is not None:
+            attrs["gating"] = engine.snapshot()
         return attrs

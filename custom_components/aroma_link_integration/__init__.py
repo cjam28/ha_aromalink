@@ -28,6 +28,7 @@ from datetime import timedelta
 
 from .AromaLinkAuthCoordinator import AromaLinkAuthCoordinator
 from .AromaLinkDeviceCoordinator import AromaLinkDeviceCoordinator
+from .engine import GateConfig, GatingEngine
 from .migration import async_import_legacy, async_remove_legacy_store
 from .reconciler import ScheduleReconciler
 from .store import AromaLinkStore
@@ -133,8 +134,6 @@ async def async_setup(hass: HomeAssistant, config: dict):
         await _register_lovelace_resource(hass)
 
     hass.bus.async_listen_once("homeassistant_started", _deferred_setup)
-
-    await _install_blueprints(hass)
 
     ws_api.async_register(hass)
 
@@ -246,41 +245,30 @@ async def _add_lovelace_resource(hass: HomeAssistant, url_path: str):
         )
 
 
-async def _install_blueprints(hass: HomeAssistant):
-    """Copy bundled blueprint YAML files into HA's blueprints directory."""
+async def _remove_installed_blueprints(hass: HomeAssistant):
+    """Remove blueprint copies earlier versions installed (gating is native now)."""
     import shutil
 
-    source_dir = os.path.join(
-        os.path.dirname(__file__), "blueprints", "automation"
-    )
     target_dir = hass.config.path(
         "blueprints", "automation", "aroma_link_integration"
     )
 
-    def _sync_copy():
-        if not os.path.isdir(source_dir):
-            return 0
-        os.makedirs(target_dir, exist_ok=True)
-        count = 0
-        for filename in os.listdir(source_dir):
-            if not filename.endswith(".yaml"):
-                continue
-            src = os.path.join(source_dir, filename)
-            dst = os.path.join(target_dir, filename)
-            if os.path.exists(dst) and os.path.getmtime(src) <= os.path.getmtime(dst):
-                continue
-            shutil.copy2(src, dst)
-            count += 1
-        return count
+    def _sync_remove():
+        if os.path.isdir(target_dir):
+            shutil.rmtree(target_dir, ignore_errors=True)
+            return True
+        return False
 
     try:
-        installed = await hass.async_add_executor_job(_sync_copy)
-        if installed:
+        if await hass.async_add_executor_job(_sync_remove):
             _LOGGER.info(
-                "Installed %d Aroma-Link blueprint(s) to %s", installed, target_dir
+                "Removed legacy Aroma-Link blueprints from %s — HVAC/occupancy/"
+                "motion gating is native now (integration options); delete any "
+                "automations that used them",
+                target_dir,
             )
     except OSError as exc:
-        _LOGGER.warning("Failed to install blueprints: %s", exc)
+        _LOGGER.debug("Blueprint cleanup skipped: %s", exc)
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry):
@@ -302,6 +290,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     if unload_ok:
         entry_data = hass.data[DOMAIN].pop(entry.entry_id, {})
+        for engine in (entry_data.get("engines") or {}).values():
+            engine.stop()
         for reconciler in (entry_data.get("reconcilers") or {}).values():
             reconciler.stop()
         store = entry_data.get("store")
@@ -439,12 +429,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         except Exception:
             _LOGGER.debug("Legacy store removal skipped", exc_info=True)
 
-    # Store change notifications -> the ONE bus event.
+    # Native gating engines (replace the legacy blueprints).
+    engines: dict[str, GatingEngine] = {}
+    for device_id, coordinator in device_coordinators.items():
+        engines[device_id] = GatingEngine(
+            hass,
+            coordinator,
+            al_store,
+            device_id,
+            GateConfig.from_options(entry.options, device_id),
+        )
+
+    # Store change notifications -> the ONE bus event + engine re-evaluation.
     def _on_store_change(device_id: str, change: str, version):
         hass.bus.async_fire(
             EVENT_UPDATED,
             {"device_id": device_id, "change": change, "version": version},
         )
+        engine = engines.get(str(device_id))
+        if engine and change in ("schedule", "flags", "night_owl", "timed_run"):
+            hass.async_create_task(engine.async_evaluate("model_changed"))
 
     al_store.set_change_listener(_on_store_change)
 
@@ -453,9 +457,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         "device_coordinators": device_coordinators,
         "store": al_store,
         "reconcilers": reconcilers,
+        "engines": engines,
     }
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = entry_data
+
+    await _remove_installed_blueprints(hass)
 
     # Kick the initial reconcile for devices whose model isn't confirmed synced
     # (first run after import: this is the cutover write that normalizes slots).
@@ -478,6 +485,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    for engine in engines.values():
+        await engine.async_start()
 
     # ------------------------------------------------------------- services
 
