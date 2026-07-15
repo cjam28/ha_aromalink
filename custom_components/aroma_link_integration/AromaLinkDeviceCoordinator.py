@@ -1100,14 +1100,46 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
 
                 if response_json.get("code") == 200 and "data" in response_json:
                     device_data = response_json["data"]
-                    is_on = device_data.get("onOff") == 1
-                    fan_on = device_data.get("fan") == 1
-                    work_status = device_data.get("workStatus", 0)
-                    pump_count = device_data.get("pumpCount", 0)
+                    # deviceInfo sometimes returns pure metadata with NO live
+                    # run-state fields (no onOff/fan/workStatus). Reading a
+                    # missing onOff as "off" made the gating engine re-assert
+                    # power every shield expiry, restarting the device's
+                    # work/pause cycle. Carry the last known state forward
+                    # instead of inventing "off".
+                    prev = self.data if isinstance(self.data, dict) else {}
+                    state_known = "onOff" in device_data
+                    if not state_known:
+                        _LOGGER.debug(
+                            "deviceInfo for %s has no live state fields; "
+                            "carrying previous state forward",
+                            self.device_id,
+                        )
+                    is_on = (
+                        device_data.get("onOff") == 1
+                        if state_known
+                        else bool(prev.get("state", False))
+                    )
+                    fan_on = (
+                        device_data.get("fan") == 1
+                        if "fan" in device_data
+                        else bool(prev.get("fan_state", False))
+                    )
+                    work_status = device_data.get(
+                        "workStatus", prev.get("workStatus", 0)
+                    )
+                    pump_count = device_data.get("pumpCount", prev.get("pumpCount", 0))
 
-                    # Get timing values from API
-                    work_remain = device_data.get("workRemainTime", 0) or 0
-                    pause_remain = device_data.get("pauseRemainTime", 0) or 0
+                    # Get timing values from API (carry forward when absent)
+                    work_remain = (
+                        device_data.get("workRemainTime", prev.get("workRemainTime", 0))
+                        or 0
+                    )
+                    pause_remain = (
+                        device_data.get(
+                            "pauseRemainTime", prev.get("pauseRemainTime", 0)
+                        )
+                        or 0
+                    )
 
                     # Get work/pause duration settings
                     work_duration = device_data.get("workSec", self._prev_work_duration)
@@ -1132,6 +1164,7 @@ class AromaLinkDeviceCoordinator(DataUpdateCoordinator):
 
                     return {
                         "state": is_on,
+                        "state_known": state_known,
                         "onOff": device_data.get("onOff"),
                         "fan": device_data.get("fan", 0),
                         "fan_state": fan_on,

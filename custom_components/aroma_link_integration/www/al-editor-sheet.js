@@ -22,6 +22,8 @@ import {
   MAX_WINDOWS,
   findOverlaps,
   getWindow,
+  isValidTime,
+  timeToMinutes,
   validateWindow,
   getDay,
 } from "./al-model.js";
@@ -31,6 +33,7 @@ class AlEditorSheet extends LitElement {
     schedule: { attribute: false },
     nightOwl: { attribute: false }, // settings object
     target: { attribute: false }, // {day, index} | "night_owl"
+    saving: { type: Boolean }, // save in flight (owned by the card)
     _draft: { state: true },
     _days: { state: true }, // selected day chips (Set)
     _slots: { state: true }, // selected window slots (Set)
@@ -42,6 +45,7 @@ class AlEditorSheet extends LitElement {
     this.schedule = null;
     this.nightOwl = null;
     this.target = null;
+    this.saving = false;
     this._draft = null;
     this._days = new Set();
     this._slots = new Set();
@@ -84,7 +88,24 @@ class AlEditorSheet extends LitElement {
   }
 
   get _problems() {
-    if (!this._draft || this.target === "night_owl") return [];
+    if (!this._draft) return [];
+    if (this.target === "night_owl") {
+      const d = this._draft;
+      const errors = [];
+      if ((d.mode || "outside_windows") === "fixed") {
+        // Mirror the input fallbacks so we validate what the user sees.
+        const start = d.fixed_start || "22:00";
+        const end = d.fixed_end || "06:00";
+        if (!isValidTime(start) || !isValidTime(end)) errors.push("Times must be HH:MM");
+        else if (timeToMinutes(start) === timeToMinutes(end)) {
+          errors.push("From and To must differ");
+        }
+      }
+      if (!(d.work_sec >= 5 && d.work_sec <= 900)) errors.push("Work 5–900s");
+      if (!(d.pause_sec >= 5 && d.pause_sec <= 900)) errors.push("Pause 5–900s");
+      if (!(d.linger_minutes >= 1 && d.linger_minutes <= 240)) errors.push("Linger 1–240min");
+      return errors;
+    }
     const errors = validateWindow(this._draft);
     if (errors.length) return errors;
     if (this._draft.enabled && this._slots.size > 1) {
@@ -105,6 +126,7 @@ class AlEditorSheet extends LitElement {
   }
 
   _save() {
+    if (this.saving || this._problems.length) return;
     if (this.target === "night_owl") {
       const days = {};
       for (let d = 0; d < 7; d++) days[d] = this._owlDays.has(d);
@@ -117,7 +139,6 @@ class AlEditorSheet extends LitElement {
       );
       return;
     }
-    if (this._problems.length) return;
     this.dispatchEvent(
       new CustomEvent("editor-save", {
         detail: { targets: this._targets, window: { ...this._draft } },
@@ -238,7 +259,7 @@ class AlEditorSheet extends LitElement {
         <button class="btn" @click=${this._cancel}>Cancel</button>
         <button
           class="btn primary"
-          ?disabled=${problems.length > 0 || this._targets.length === 0}
+          ?disabled=${this.saving || problems.length > 0 || this._targets.length === 0}
           @click=${this._save}
         >
           Save
@@ -248,6 +269,7 @@ class AlEditorSheet extends LitElement {
   }
 
   _renderNightOwlEditor() {
+    const problems = this._problems;
     return html`
       <div class="head">Night Owl 🦉 — motion-gated overnight diffusing</div>
       <div class="rows">
@@ -307,9 +329,18 @@ class AlEditorSheet extends LitElement {
         sensors in the integration options). A night belongs to the evening it
         starts on.
       </div>
+      ${problems.length
+        ? html`<div class="problems">⚠ ${problems.join(" · ")}</div>`
+        : nothing}
       <div class="actions">
         <button class="btn" @click=${this._cancel}>Cancel</button>
-        <button class="btn primary" @click=${this._save}>Save</button>
+        <button
+          class="btn primary"
+          ?disabled=${this.saving || problems.length > 0}
+          @click=${this._save}
+        >
+          Save
+        </button>
       </div>
     `;
   }
@@ -324,6 +355,9 @@ class AlEditorSheet extends LitElement {
   }
 
   static styles = css`
+    :host {
+      -webkit-tap-highlight-color: transparent;
+    }
     .sheet {
       border: 1px solid var(--divider-color);
       border-radius: 10px;
@@ -428,6 +462,24 @@ class AlEditorSheet extends LitElement {
     .btn[disabled] {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+    button:active {
+      filter: brightness(0.92);
+    }
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 1px;
+    }
+    @media (pointer: coarse) {
+      .chip {
+        min-height: 40px;
+        padding: 8px 12px;
+      }
+      .btn {
+        min-height: 44px;
+      }
     }
   `;
 }

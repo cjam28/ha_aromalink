@@ -143,6 +143,14 @@ class ScheduleReconciler:
 
         Returns True when drift was found (and a repush kicked off).
         """
+        if force_push:
+            # Manual "Sync Now": push unconditionally. The read-only pre-check
+            # aborts on the first unreadable day (e.g. an expired session's
+            # 401), which used to swallow the user's recovery click entirely;
+            # _push_and_verify's own retry loop handles transient failures.
+            self.async_request_sync("manual")
+            return True
+
         expected = self._compiled()
         drifted_days = []
         for day in Weekday:
@@ -167,8 +175,16 @@ class ScheduleReconciler:
             )
             self.async_request_sync("drift")
             return True
-        if force_push:
-            self.async_request_sync("manual")
+
+        # No drift: the device matches the model. Heal a stale error/pending
+        # label (e.g. a push that landed but whose verify reads all failed)
+        # so a correct device never shows "Push failed" forever.
+        model_version = self._store.get_model(self._device_id).schedule.version
+        sync = self._store.get_sync(self._device_id)
+        if sync.state != SYNC_SYNCED or sync.synced_version != model_version:
+            await self._store.async_set_sync(
+                self._device_id, SYNC_SYNCED, synced_version=model_version
+            )
         return False
 
     # ------------------------------------------------------------- internals

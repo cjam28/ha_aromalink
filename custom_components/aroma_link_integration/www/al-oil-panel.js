@@ -102,7 +102,7 @@ class AlOilPanel extends LitElement {
 
     return html`
       <div class="summary" @click=${() => (this._open = !this._open)}>
-        <span class="ico">🛢</span>
+        <span class="ico"><ha-icon icon="mdi:water-percent"></ha-icon></span>
         <div class="bar"><div class="fill" style="width: ${Math.max(0, Math.min(100, pct ?? 0))}%"></div></div>
         <span class="pct">${pct != null ? `${Math.round(pct)}%` : "—"}</span>
         ${days != null ? html`<span class="days">~${Math.round(days)}d left</span>` : nothing}
@@ -192,12 +192,20 @@ class AlOilPanel extends LitElement {
   }
 
   static styles = css`
+    :host {
+      -webkit-tap-highlight-color: transparent;
+    }
     .summary {
       display: flex;
       align-items: center;
       gap: 8px;
       cursor: pointer;
       padding: 4px 0;
+    }
+    .summary .ico {
+      display: flex;
+      color: var(--secondary-text-color);
+      --mdc-icon-size: 18px;
     }
     .bar {
       flex: 1;
@@ -280,6 +288,14 @@ class AlOilPanel extends LitElement {
     .btn[disabled] {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+    button:active {
+      filter: brightness(0.92);
+    }
+    button:focus-visible,
+    input:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 1px;
     }
     .hint {
       font-size: 0.75em;

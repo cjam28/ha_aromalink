@@ -19,6 +19,7 @@ class AlScheduleGrid extends LitElement {
     nightOwlEnabled: { type: Boolean },
     activeWindow: { attribute: false }, // {day, index} | null
     narrow: { type: Boolean },
+    compact: { type: Boolean },
     selectedDay: { type: Number },
     editTarget: { attribute: false }, // {day, index} | "night_owl" | null
   };
@@ -29,6 +30,7 @@ class AlScheduleGrid extends LitElement {
     this.nightOwlEnabled = true;
     this.activeWindow = null;
     this.narrow = false;
+    this.compact = false;
     this.selectedDay = todayCanonical();
     this.editTarget = null;
   }
@@ -97,6 +99,18 @@ class AlScheduleGrid extends LitElement {
     `;
   }
 
+  _legend() {
+    if (this.compact) return nothing;
+    return html`
+      <div class="legend">
+        <span><span class="sw on"></span>Enabled</span>
+        <span><span class="sw off"></span>Off</span>
+        <span><span class="sw owl"></span>Night Owl</span>
+        <span><span class="sw now"></span>Running now</span>
+      </div>
+    `;
+  }
+
   _renderWide() {
     const today = todayCanonical();
     return html`
@@ -111,9 +125,12 @@ class AlScheduleGrid extends LitElement {
             ${DAY_NAMES.map((_n, day) => this._cell(day, index))}
           `
         )}
-        <button class="rowhead owl-head" @click=${this._editNightOwl} title="Edit Night Owl settings">🦉</button>
+        <button class="rowhead owl-head" @click=${this._editNightOwl} title="Edit Night Owl settings">
+          <ha-icon icon="mdi:owl"></ha-icon>
+        </button>
         ${DAY_NAMES.map((_n, day) => this._nightOwlCell(day))}
       </div>
+      ${this._legend()}
     `;
   }
 
@@ -158,15 +175,34 @@ class AlScheduleGrid extends LitElement {
             </button>
           `;
         })}
-        <button
+        <div
           class="dayrow owl ${dayData.night_owl && this.nightOwlEnabled ? "on" : "off"}"
+          role="button"
+          tabindex="0"
           @click=${() => this._toggleNightOwl(day, dayData.night_owl)}
+          @keydown=${(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              this._toggleNightOwl(day, dayData.night_owl);
+            }
+          }}
         >
-          <span class="wname">🦉</span>
+          <span class="wname"><ha-icon icon="mdi:owl"></ha-icon></span>
           <span class="time">Night Owl</span>
           <span class="meta">${dayData.night_owl ? "allowed tonight" : "off tonight"}</span>
-        </button>
+          <button
+            class="owl-cog"
+            title="Edit Night Owl settings"
+            @click=${(e) => {
+              e.stopPropagation();
+              this._editNightOwl();
+            }}
+          >
+            <ha-icon icon="mdi:cog-outline"></ha-icon>
+          </button>
+        </div>
       </div>
+      ${this._legend()}
     `;
   }
 
@@ -178,6 +214,10 @@ class AlScheduleGrid extends LitElement {
   static styles = css`
     :host {
       display: block;
+      -webkit-tap-highlight-color: transparent;
+      --al-owl: var(--aroma-link-night-owl-color, #673ab7);
+      --al-owl-tint: color-mix(in srgb, var(--al-owl) 18%, transparent);
+      --al-owl-border: color-mix(in srgb, var(--al-owl) 60%, transparent);
     }
     .loading {
       color: var(--secondary-text-color);
@@ -185,7 +225,7 @@ class AlScheduleGrid extends LitElement {
     }
     .grid {
       display: grid;
-      grid-template-columns: auto repeat(var(--cols), 1fr);
+      grid-template-columns: auto repeat(var(--cols), minmax(0, 1fr));
       gap: 3px;
     }
     .corner {
@@ -212,6 +252,7 @@ class AlScheduleGrid extends LitElement {
     .owl-head {
       cursor: pointer;
       font-size: 1em;
+      --mdc-icon-size: 18px;
     }
     button.cell {
       font: inherit;
@@ -226,6 +267,8 @@ class AlScheduleGrid extends LitElement {
       align-items: center;
       gap: 1px;
       min-height: 38px;
+      min-width: 0;
+      overflow: hidden;
       justify-content: center;
     }
     button.cell .time {
@@ -241,8 +284,9 @@ class AlScheduleGrid extends LitElement {
       border-color: rgba(var(--rgb-primary-color, 33, 150, 243), 0.7);
       background: rgba(var(--rgb-primary-color, 33, 150, 243), 0.12);
     }
-    button.cell.off .time {
-      color: var(--secondary-text-color);
+    button.cell.off {
+      border-style: dashed;
+      opacity: 0.65;
     }
     button.cell.empty .time {
       color: var(--disabled-text-color, var(--secondary-text-color));
@@ -256,8 +300,8 @@ class AlScheduleGrid extends LitElement {
       outline-offset: 1px;
     }
     button.cell.owl.on {
-      background: rgba(103, 58, 183, 0.18);
-      border-color: rgba(103, 58, 183, 0.6);
+      background: var(--al-owl-tint);
+      border-color: var(--al-owl-border);
     }
     .daychips {
       display: flex;
@@ -304,6 +348,10 @@ class AlScheduleGrid extends LitElement {
       border-color: rgba(var(--rgb-primary-color, 33, 150, 243), 0.7);
       background: rgba(var(--rgb-primary-color, 33, 150, 243), 0.1);
     }
+    .dayrow.off {
+      border-style: dashed;
+      opacity: 0.65;
+    }
     .dayrow.active {
       outline: 2px solid var(--primary-color);
     }
@@ -311,6 +359,7 @@ class AlScheduleGrid extends LitElement {
       font-size: 0.8em;
       color: var(--secondary-text-color);
       width: 28px;
+      --mdc-icon-size: 18px;
     }
     .dayrow .meta {
       margin-left: auto;
@@ -318,8 +367,74 @@ class AlScheduleGrid extends LitElement {
       color: var(--secondary-text-color);
     }
     .dayrow.owl.on {
-      background: rgba(103, 58, 183, 0.15);
-      border-color: rgba(103, 58, 183, 0.6);
+      background: var(--al-owl-tint);
+      border-color: var(--al-owl-border);
+    }
+    .owl-cog {
+      font: inherit;
+      display: flex;
+      align-items: center;
+      border: none;
+      background: none;
+      color: var(--secondary-text-color);
+      padding: 4px;
+      margin-left: 8px;
+      cursor: pointer;
+      --mdc-icon-size: 18px;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 12px;
+      margin-top: 6px;
+      font-size: 0.72em;
+      color: var(--secondary-text-color);
+    }
+    .legend .sw {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      margin-right: 4px;
+      border: 1px solid var(--divider-color);
+      vertical-align: -1px;
+    }
+    .legend .sw.on {
+      background: rgba(var(--rgb-primary-color, 33, 150, 243), 0.12);
+      border-color: rgba(var(--rgb-primary-color, 33, 150, 243), 0.7);
+    }
+    .legend .sw.off {
+      border-style: dashed;
+      opacity: 0.65;
+    }
+    .legend .sw.owl {
+      background: var(--al-owl-tint);
+      border-color: var(--al-owl-border);
+    }
+    .legend .sw.now {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 1px;
+    }
+    button:active,
+    .dayrow:active {
+      filter: brightness(0.92);
+    }
+    button:focus-visible,
+    .dayrow:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 1px;
+    }
+    @media (pointer: coarse) {
+      button.cell {
+        min-height: 44px;
+      }
+      .chip {
+        min-height: 40px;
+        padding: 8px 12px;
+      }
+      .dayrow {
+        min-height: 44px;
+      }
     }
   `;
 }

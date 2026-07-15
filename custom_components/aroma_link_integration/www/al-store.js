@@ -3,8 +3,9 @@
  *
  * One DeviceStore per device_id, shared across card instances in the tab via
  * a refcounted registry. Subscribes ONCE to the integration's bus event and
- * re-fetches on relevant changes; stale event echoes (version <= current) are
- * ignored. Saves are optimistic: the pre-save schedule is kept for Undo.
+ * re-fetches on relevant changes; refresh() drops stale fetch results but
+ * accepts an implausibly large backwards version jump as a backend reset.
+ * Saves are optimistic: the pre-save schedule is kept for Undo.
  */
 import * as api from "./al-api.js";
 
@@ -44,11 +45,13 @@ export class DeviceStore extends EventTarget {
     this.flags = null;
     this.sync = null;
     this.status = null; // get_status payload
-    this.undoSnapshot = null; // {schedule, nightOwl}
+    this.undoSnapshot = null; // {schedule, nightOwl, mutation}
     this.error = null;
+    this.ready = false; // true after the first successful refresh()
     this._unsubPromise = null;
     this._loading = false;
     this._refreshQueued = false;
+    this._mutations = 0; // bumped on every adopted server-state change
   }
 
   connect(hass) {
@@ -79,7 +82,6 @@ export class DeviceStore extends EventTarget {
     if (String(data.device_id) !== this.deviceId) return;
     const change = data.change;
     if (change === "schedule" || change === "night_owl" || change === "flags") {
-      if (typeof data.version === "number" && data.version <= this.version) return;
       this.refresh();
     } else if (change === "sync") {
       this.refresh(); // sync state lives in the schedule payload
@@ -102,8 +104,12 @@ export class DeviceStore extends EventTarget {
       const result = await api.getSchedule(this.hass, this.deviceId);
       const incoming = result.schedule?.version ?? -1;
       // Never roll back past state we already adopted (e.g. an optimistic
-      // save's result racing a slower, older fetch).
-      if (incoming >= this.version) {
+      // save's result racing a slower, older fetch) — but a version LOWER by
+      // more than 1000 is implausible as a stale echo, so treat it as a
+      // backend counter reset (device re-seed, storage wipe) and apply it.
+      const reset = incoming >= 0 && this.version - incoming > 1000;
+      if (incoming >= this.version || reset) {
+        if (incoming !== this.version) this._mutations += 1;
         this.schedule = result.schedule;
         this.nightOwl = result.night_owl;
         this.flags = result.flags;
@@ -111,6 +117,7 @@ export class DeviceStore extends EventTarget {
       }
       this.sync = result.sync;
       this.error = null;
+      this.ready = true;
     } catch (err) {
       this.error = err?.message || String(err);
     } finally {
@@ -146,7 +153,8 @@ export class DeviceStore extends EventTarget {
       nightOwl,
       baseVersion: this.version >= 0 ? this.version : undefined,
     });
-    this.undoSnapshot = previous;
+    this._mutations += 1;
+    this.undoSnapshot = { ...previous, mutation: this._mutations };
     this.version = result.version;
     if (this.schedule) {
       this.schedule = { ...schedule, version: result.version };
@@ -163,6 +171,9 @@ export class DeviceStore extends EventTarget {
     const snapshot = this.undoSnapshot;
     if (!snapshot || !snapshot.schedule) return false;
     this.undoSnapshot = null;
+    // Refuse if ANY mutation landed after the save that produced this
+    // snapshot — undoing now would silently clobber that change.
+    if (snapshot.mutation !== this._mutations) return false;
     await this.save(snapshot.schedule, snapshot.nightOwl);
     return true;
   }

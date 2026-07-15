@@ -91,11 +91,11 @@ class AlControlsRow extends LitElement {
     return html`
       <div class="row">
         <button class="ctl ${powerOn ? "on" : ""}" @click=${this._togglePower} title="Power">
-          <span class="ico">⏻</span>
+          <span class="ico"><ha-icon icon="mdi:power"></ha-icon></span>
           <span class="lbl">${powerOn ? "On" : "Off"}</span>
         </button>
         <button class="ctl ${fanOn ? "on" : ""}" @click=${this._toggleFan} title="Fan">
-          <span class="ico">🌀</span>
+          <span class="ico"><ha-icon icon="mdi:fan"></ha-icon></span>
           <span class="lbl">Fan</span>
         </button>
         ${this._runActive
@@ -127,6 +127,9 @@ class AlControlsRow extends LitElement {
   }
 
   static styles = css`
+    :host {
+      -webkit-tap-highlight-color: transparent;
+    }
     .row {
       display: flex;
       gap: 8px;
@@ -153,6 +156,8 @@ class AlControlsRow extends LitElement {
     }
     .ctl .ico {
       font-size: 1.15em;
+      display: flex;
+      --mdc-icon-size: 20px;
     }
     .ctl .lbl {
       font-size: 0.72em;
@@ -201,6 +206,23 @@ class AlControlsRow extends LitElement {
       background: var(--primary-color);
       border-color: var(--primary-color);
       color: var(--text-primary-color, #fff);
+    }
+    button:active {
+      filter: brightness(0.92);
+    }
+    button:focus-visible,
+    input:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 1px;
+    }
+    @media (pointer: coarse) {
+      .ctl {
+        min-height: 44px;
+      }
+      .btn {
+        min-height: 40px;
+        padding: 8px 12px;
+      }
     }
   `;
 }

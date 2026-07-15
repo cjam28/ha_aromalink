@@ -93,11 +93,11 @@ export function applyWindowEdit(schedule, targets, edited) {
   return next;
 }
 
-/** Human summary for a grid cell. */
+/** Human summary for a grid cell. Disabled state is shown structurally
+ * (dashed cell border), not in the label. */
 export function windowLabel(w) {
   if (!w) return "—";
-  const label = `${w.start}–${w.end}`;
-  return w.enabled ? label : `(${label})`;
+  return `${w.start}–${w.end}`;
 }
 
 export function formatCountdown(totalSeconds) {

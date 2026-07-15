@@ -33,8 +33,9 @@ const CONFIG_KEYS = new Set([
   "layout_options",
 ]);
 
-const NARROW_WIDTH = 480;
+const NARROW_WIDTH = 560;
 const UNDO_TIMEOUT_MS = 8000;
+const COPY_ARM_TIMEOUT_MS = 3000;
 
 class AromaLinkScheduleCard extends LitElement {
   static properties = {
@@ -42,6 +43,8 @@ class AromaLinkScheduleCard extends LitElement {
     _devices: { attribute: false, state: true }, // [{device_id, name, entities}]
     _narrow: { state: true },
     _editTargets: { state: true }, // device_id -> {day,index}|"night_owl"|null
+    _saving: { state: true }, // device_id -> bool (save in flight)
+    _copyArm: { state: true }, // {target, source} | null (two-tap confirm)
     _toast: { state: true }, // {text, undoDeviceId} | null
   };
 
@@ -53,6 +56,9 @@ class AromaLinkScheduleCard extends LitElement {
     this._storeListeners = new Map();
     this._narrow = false;
     this._editTargets = {};
+    this._saving = {};
+    this._copyArm = null;
+    this._copyArmTimer = null;
     this._toast = null;
     this._toastTimer = null;
     this._resizeObserver = null;
@@ -74,7 +80,16 @@ class AromaLinkScheduleCard extends LitElement {
     if (config.devices && !Array.isArray(config.devices)) {
       throw new Error("aroma-link-schedule-card: devices must be a list");
     }
+    // HA reuses the element and calls setConfig again on edit — if the
+    // devices filter changed, the device list must be re-derived.
+    const devicesChanged =
+      JSON.stringify(this._config.devices ?? null) !== JSON.stringify(config.devices ?? null);
     this._config = { ...config };
+    if (devicesChanged) {
+      this._detachStores();
+      this._devices = null;
+      if (this._hass) this._loadDevices();
+    }
   }
 
   set hass(hass) {
@@ -111,6 +126,11 @@ class AromaLinkScheduleCard extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    // Seed narrow-ness before the ResizeObserver's first (async) callback so
+    // phones don't flash the wide grid; fall back to the viewport width when
+    // the card has not been laid out yet (its width can never exceed it).
+    const width = this.clientWidth || window.innerWidth;
+    this._narrow = width > 0 && width < NARROW_WIDTH;
     this._resizeObserver = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect?.width || this.clientWidth;
       this._narrow = width > 0 && width < NARROW_WIDTH;
@@ -126,6 +146,7 @@ class AromaLinkScheduleCard extends LitElement {
     this._resizeObserver = null;
     this._detachStores();
     clearTimeout(this._toastTimer);
+    clearTimeout(this._copyArmTimer);
   }
 
   async _loadDevices() {
@@ -180,8 +201,9 @@ class AromaLinkScheduleCard extends LitElement {
 
   async _saveWindow(deviceId, detail) {
     const store = this._stores.get(deviceId);
-    if (!store || !store.schedule) return;
+    if (!store || !store.schedule || this._saving[deviceId]) return;
     const next = applyWindowEdit(store.schedule, detail.targets, detail.window);
+    this._saving = { ...this._saving, [deviceId]: true };
     try {
       await store.save(next);
       this._editTargets = { ...this._editTargets, [deviceId]: null };
@@ -193,23 +215,28 @@ class AromaLinkScheduleCard extends LitElement {
       } else {
         this._showToast(`Save failed: ${err?.message || err}`);
       }
+    } finally {
+      this._saving = { ...this._saving, [deviceId]: false };
     }
   }
 
   async _saveNightOwl(deviceId, detail) {
     const store = this._stores.get(deviceId);
-    if (!store || !store.schedule) return;
+    if (!store || !store.schedule || this._saving[deviceId]) return;
     const next = cloneSchedule(store.schedule);
     for (const [day, enabled] of Object.entries(detail.days)) {
       if (!next.days[day]) next.days[day] = { windows: [], night_owl: false };
       next.days[day].night_owl = enabled;
     }
+    this._saving = { ...this._saving, [deviceId]: true };
     try {
       await store.save(next, detail.settings);
       this._editTargets = { ...this._editTargets, [deviceId]: null };
       this._showToast("Night Owl saved", deviceId);
     } catch (err) {
       this._showToast(`Save failed: ${err?.message || err}`);
+    } finally {
+      this._saving = { ...this._saving, [deviceId]: false };
     }
   }
 
@@ -248,6 +275,25 @@ class AromaLinkScheduleCard extends LitElement {
     }
   }
 
+  _copyChipTapped(targetDeviceId, sourceDeviceId) {
+    // Two-tap arm: the first tap arms the chip ("Confirm copy?"), the second
+    // tap within the window copies; the arm auto-reverts after 3 seconds.
+    const armed =
+      this._copyArm &&
+      this._copyArm.target === targetDeviceId &&
+      this._copyArm.source === sourceDeviceId;
+    clearTimeout(this._copyArmTimer);
+    if (armed) {
+      this._copyArm = null;
+      this._copyFrom(targetDeviceId, sourceDeviceId);
+      return;
+    }
+    this._copyArm = { target: targetDeviceId, source: sourceDeviceId };
+    this._copyArmTimer = setTimeout(() => {
+      this._copyArm = null;
+    }, COPY_ARM_TIMEOUT_MS);
+  }
+
   async _copyFrom(targetDeviceId, sourceDeviceId) {
     const target = this._stores.get(targetDeviceId);
     const source = this._stores.get(sourceDeviceId);
@@ -263,15 +309,24 @@ class AromaLinkScheduleCard extends LitElement {
   // ------------------------------------------------------------- rendering
 
   _syncChip(store, deviceId) {
+    if (!store.ready) {
+      // Not loaded yet — a neutral chip, not a fake backend "pending".
+      return html`<button class="chip sync" title="Loading">…</button>`;
+    }
     const state = store.sync?.state || "pending";
-    const label = { synced: "Synced ✓", pending: "Pending ⟳", error: "Push failed ⚠" }[state];
+    const label = { synced: "Synced", pending: "Pending", error: "Push failed" }[state];
+    const icon = {
+      synced: "mdi:check-circle-outline",
+      pending: "mdi:sync",
+      error: "mdi:alert-outline",
+    }[state];
     return html`
       <button
         class="chip sync ${state}"
         title=${store.sync?.last_error || "Device schedule sync"}
         @click=${() => this._syncNow(deviceId)}
       >
-        ${label}
+        ${label} <ha-icon icon=${icon}></ha-icon>
       </button>
     `;
   }
@@ -301,17 +356,21 @@ class AromaLinkScheduleCard extends LitElement {
           <span class="headactions">
             ${(this._devices || [])
               .filter((other) => other.device_id !== device.device_id)
-              .map(
-                (other) => html`
+              .map((other) => {
+                const armed =
+                  this._copyArm &&
+                  this._copyArm.target === device.device_id &&
+                  this._copyArm.source === other.device_id;
+                return html`
                   <button
-                    class="chip"
+                    class="chip ${armed ? "armed" : ""}"
                     title="Copy ${other.name}'s schedule to ${device.name}"
-                    @click=${() => this._copyFrom(device.device_id, other.device_id)}
+                    @click=${() => this._copyChipTapped(device.device_id, other.device_id)}
                   >
-                    ⧉ ${other.name}
+                    ${armed ? "Confirm copy?" : html`⧉ ${other.name}`}
                   </button>
-                `
-              )}
+                `;
+              })}
             ${this._syncChip(store, device.device_id)}
           </span>
         </div>
@@ -334,6 +393,7 @@ class AromaLinkScheduleCard extends LitElement {
                 .nightOwlEnabled=${store.flags?.night_owl_enabled !== false}
                 .activeWindow=${gatingWindow}
                 .narrow=${this._narrow}
+                .compact=${!!this._config.compact}
                 .editTarget=${editTarget}
                 @cell-selected=${(e) => {
                   this._editTargets = {
@@ -355,6 +415,7 @@ class AromaLinkScheduleCard extends LitElement {
                       .schedule=${store.schedule}
                       .nightOwl=${store.nightOwl}
                       .target=${editTarget}
+                      .saving=${!!this._saving[device.device_id]}
                       @editor-save=${(e) => this._saveWindow(device.device_id, e.detail)}
                       @night-owl-save=${(e) => this._saveNightOwl(device.device_id, e.detail)}
                       @editor-cancel=${() => {
@@ -400,7 +461,7 @@ class AromaLinkScheduleCard extends LitElement {
         </div>
         ${this._toast
           ? html`
-              <div class="toast">
+              <div class="toast" role="status" aria-live="polite">
                 <span>${this._toast.text}</span>
                 ${this._toast.undoDeviceId
                   ? html`<button class="undo" @click=${this._undo}>Undo</button>`
@@ -413,6 +474,9 @@ class AromaLinkScheduleCard extends LitElement {
   }
 
   static styles = css`
+    :host {
+      -webkit-tap-highlight-color: transparent;
+    }
     ha-card {
       position: relative;
       overflow: hidden;
@@ -473,6 +537,10 @@ class AromaLinkScheduleCard extends LitElement {
       cursor: pointer;
       white-space: nowrap;
     }
+    .chip ha-icon {
+      --mdc-icon-size: 16px;
+      vertical-align: -3px;
+    }
     .chip.sync.synced {
       color: var(--success-color, #4caf50);
       border-color: var(--success-color, #4caf50);
@@ -514,6 +582,21 @@ class AromaLinkScheduleCard extends LitElement {
       color: inherit;
       text-decoration: underline;
       cursor: pointer;
+      padding: 6px 12px;
+      margin: -6px -12px;
+    }
+    button:active {
+      filter: brightness(0.92);
+    }
+    button:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 1px;
+    }
+    @media (pointer: coarse) {
+      .chip {
+        min-height: 40px;
+        padding: 8px 12px;
+      }
     }
   `;
 }
