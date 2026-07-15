@@ -16,22 +16,27 @@ import logging
 import os
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.components.http import StaticPathConfig
 import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
 
 from datetime import timedelta
 
 from .AromaLinkAuthCoordinator import AromaLinkAuthCoordinator
 from .AromaLinkDeviceCoordinator import AromaLinkDeviceCoordinator
 from .engine import GateConfig, GatingEngine
-from .migration import async_import_legacy, async_remove_legacy_store
+from .migration import (
+    async_import_legacy,
+    async_remove_legacy_store,
+    cleanup_removed_entities,
+)
 from .reconciler import ScheduleReconciler
+from .services import async_register_services
 from .store import AromaLinkStore
+from .timed_run import TimedRunManager
 from . import ws_api
 from .const import (
     DOMAIN,
@@ -43,7 +48,6 @@ from .const import (
     CONF_ALLOW_SSL_FALLBACK,
     DEFAULT_POLL_INTERVAL_SECONDS,
     DEFAULT_DEBUG_LOGGING,
-    SERVICE_API_DIAGNOSTICS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -54,17 +58,6 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 PLATFORMS = ["switch", "binary_sensor", "sensor", "number", "button"]
 
 DRIFT_CHECK_INTERVAL = timedelta(hours=1)
-
-API_DIAGNOSTICS_SCHEMA = vol.Schema({
-    vol.Required("path"): cv.string,
-    vol.Optional("method", default="GET"): vol.In(["GET", "POST"]),
-    vol.Optional("device_id"): cv.string,
-    vol.Optional("params"): dict,
-    vol.Optional("data"): dict,
-    vol.Optional("json"): dict,
-    vol.Optional("log_response", default=True): cv.boolean,
-    vol.Optional("fire_event", default=True): cv.boolean,
-})
 
 
 async def _cleanup_old_helpers(hass: HomeAssistant, device_name: str):
@@ -290,6 +283,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     if unload_ok:
         entry_data = hass.data[DOMAIN].pop(entry.entry_id, {})
+        timed_runs = entry_data.get("timed_runs")
+        if timed_runs:
+            timed_runs.stop()
         for engine in (entry_data.get("engines") or {}).values():
             engine.stop()
         for reconciler in (entry_data.get("reconcilers") or {}).values():
@@ -452,17 +448,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     al_store.set_change_listener(_on_store_change)
 
+    timed_runs = TimedRunManager(hass, al_store, device_coordinators, reconcilers)
+
     entry_data = {
         "auth_coordinator": auth_coordinator,
         "device_coordinators": device_coordinators,
         "store": al_store,
         "reconcilers": reconcilers,
         "engines": engines,
+        "timed_runs": timed_runs,
     }
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = entry_data
 
     await _remove_installed_blueprints(hass)
+    cleanup_removed_entities(hass, entry)
 
     # Kick the initial reconcile for devices whose model isn't confirmed synced
     # (first run after import: this is the cutover write that normalizes slots).
@@ -489,42 +489,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     for engine in engines.values():
         await engine.async_start()
 
-    # ------------------------------------------------------------- services
+    await timed_runs.async_restore()
 
-    async def api_diagnostics_service(call: ServiceCall):
-        """Raw API probe for debugging (fires {DOMAIN}_api_diagnostics)."""
-        device_id = call.data.get("device_id")
-        coordinator = None
-        if device_id and str(device_id) in device_coordinators:
-            coordinator = device_coordinators[str(device_id)]
-        elif len(device_coordinators) == 1:
-            coordinator = next(iter(device_coordinators.values()))
-        if coordinator is None:
-            _LOGGER.error("api_diagnostics: specify device_id (multiple devices)")
-            return
-
-        path = call.data["path"]
-        url = path if path.startswith("http") else f"https://www.aroma-link.com{path}"
-        result = await coordinator.api_request(
-            url,
-            method=call.data.get("method", "GET"),
-            params=call.data.get("params"),
-            data=call.data.get("data"),
-            json_body=call.data.get("json"),
-        )
-        if call.data.get("log_response", True):
-            _LOGGER.info("api_diagnostics %s -> %s", path, result)
-        if call.data.get("fire_event", True):
-            hass.bus.async_fire(
-                f"{DOMAIN}_api_diagnostics",
-                {"device_id": coordinator.device_id, "path": path, "result": result},
-            )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_API_DIAGNOSTICS,
-        api_diagnostics_service,
-        API_DIAGNOSTICS_SCHEMA,
-    )
+    async_register_services(hass)
 
     return True

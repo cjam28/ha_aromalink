@@ -229,6 +229,86 @@ async def ws_sync_now(hass, connection, msg):
     )
 
 
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "aroma_link/get_status",
+        vol.Required("device_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_get_status(hass, connection, msg):
+    """Live device/gating/timed-run/oil status for the card header."""
+    device_id = str(msg["device_id"])
+    entry_data = _entry_data_for_device(hass, device_id)
+    if entry_data is None:
+        connection.send_error(msg["id"], ERR_UNKNOWN_DEVICE, "Unknown device_id")
+        return
+
+    coordinator = entry_data["device_coordinators"][device_id]
+    store = entry_data["store"]
+    engine = (entry_data.get("engines") or {}).get(device_id)
+    timed_runs = entry_data.get("timed_runs")
+
+    data = coordinator.data or {}
+    desired = engine.desired_power() if engine else None
+    connection.send_result(
+        msg["id"],
+        {
+            "power": bool(data.get("state", False)),
+            "fan": bool(data.get("fan_state", False)),
+            "work_status": data.get("workStatus"),
+            "available": coordinator.last_update_success,
+            "desired_power": desired,
+            "gating": engine.snapshot() if engine else {},
+            "timed_run": timed_runs.status(device_id) if timed_runs else None,
+            "oil": coordinator.get_oil_status(),
+            "sync": store.get_sync(device_id).to_dict(),
+        },
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "aroma_link/timed_run_start",
+        vol.Required("device_id"): str,
+        vol.Required("duration_minutes"): vol.All(int, vol.Range(min=1, max=24 * 60)),
+        vol.Optional("work_sec"): vol.All(int, vol.Range(min=5, max=900)),
+        vol.Optional("pause_sec"): vol.All(int, vol.Range(min=5, max=900)),
+    }
+)
+@websocket_api.async_response
+async def ws_timed_run_start(hass, connection, msg):
+    """Start a restart-surviving timed run."""
+    entry_data = _entry_data_for_device(hass, msg["device_id"])
+    if entry_data is None:
+        connection.send_error(msg["id"], ERR_UNKNOWN_DEVICE, "Unknown device_id")
+        return
+    ends_at = await entry_data["timed_runs"].async_start(
+        msg["device_id"],
+        msg["duration_minutes"],
+        work_sec=msg.get("work_sec"),
+        pause_sec=msg.get("pause_sec"),
+    )
+    connection.send_result(msg["id"], {"ends_at": ends_at})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "aroma_link/timed_run_cancel",
+        vol.Required("device_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_timed_run_cancel(hass, connection, msg):
+    """Cancel a timed run's auto-off (device is left as-is)."""
+    entry_data = _entry_data_for_device(hass, msg["device_id"])
+    if entry_data is None:
+        connection.send_error(msg["id"], ERR_UNKNOWN_DEVICE, "Unknown device_id")
+        return
+    await entry_data["timed_runs"].async_cancel(msg["device_id"])
+    connection.send_result(msg["id"], {})
+
+
 @websocket_api.websocket_command({vol.Required("type"): "aroma_link/list_devices"})
 @websocket_api.async_response
 async def ws_list_devices(hass, connection, msg):
@@ -255,6 +335,9 @@ COMMANDS = (
     ws_save_schedule,
     ws_set_night_owl_days,
     ws_set_flags,
+    ws_get_status,
+    ws_timed_run_start,
+    ws_timed_run_cancel,
     ws_sync_now,
     ws_list_devices,
 )

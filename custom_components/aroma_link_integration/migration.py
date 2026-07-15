@@ -216,3 +216,59 @@ async def async_remove_legacy_store(hass: HomeAssistant, entry_id: str) -> None:
     """Delete the old oil-state store file (call only after full cutover)."""
     legacy_store = Store(hass, 1, f"{DOMAIN}_oil_state_{entry_id}.json")
     await legacy_store.async_remove()
+
+
+# unique_id suffixes of v2.x entities that no longer exist in v3.
+REMOVED_UNIQUE_ID_SUFFIXES = (
+    "program_enabled",
+    "program_day_0",
+    "program_day_1",
+    "program_day_2",
+    "program_day_3",
+    "program_day_4",
+    "program_day_5",
+    "program_day_6",
+    "program_selector",
+    "program_day_selector",
+    "program_level",
+    "program_start_time",
+    "program_end_time",
+    "program_work_duration",
+    "program_pause_duration",
+    "save_program",
+    "save_settings",
+    "sync_schedules",
+    "run",
+    "schedule_matrix",
+    "work_remaining_time",
+    "pause_remaining_time",
+    "oil_bottle_capacity",
+    "oil_fill_volume",
+    "oil_remaining_input",
+    "oil_manual_start_volume",
+    "oil_manual_end_volume",
+    "oil_manual_runtime_hours",
+    "oil_manual_rate",
+    "oil_calibration_state",
+    "oil_calibration_toggle",
+    "oil_calibration_finalize",
+    "oil_manual_override",
+    "oil_fill_date",
+    "diffuse_time",
+)
+
+
+def cleanup_removed_entities(hass: HomeAssistant, entry) -> int:
+    """Remove registry entries for entities pruned in v3. Returns count removed."""
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    removed = 0
+    for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        unique_id = reg_entry.unique_id or ""
+        if any(unique_id.endswith(f"_{suffix}") for suffix in REMOVED_UNIQUE_ID_SUFFIXES):
+            registry.async_remove(reg_entry.entity_id)
+            removed += 1
+    if removed:
+        _LOGGER.info("Removed %d obsolete v2.x entities from the registry", removed)
+    return removed

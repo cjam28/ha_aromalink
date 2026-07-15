@@ -1,7 +1,161 @@
 # Aroma-Link services (v3).
 # Schedule editing happens through the Lovelace card / websocket API
-# (aroma_link/save_schedule); timed-run and oil services land with the
-# v3 service layer (see services.py).
+# (aroma_link/save_schedule).
+
+start_timed_run:
+  name: Start timed run
+  description: >-
+    Run the diffuser for a duration, regardless of schedule windows. Survives
+    Home Assistant restarts. Replaces any run already active on the device.
+  fields:
+    device_id:
+      name: Device ID
+      description: Aroma-Link device id (optional with a single device).
+      example: "12345"
+      selector:
+        text:
+    duration_minutes:
+      name: Duration (minutes)
+      required: true
+      default: 360
+      selector:
+        number:
+          min: 1
+          max: 1440
+          unit_of_measurement: min
+    work_sec:
+      name: Work seconds per cycle
+      description: Defaults to the device's Work Duration setting.
+      selector:
+        number:
+          min: 5
+          max: 900
+          unit_of_measurement: s
+    pause_sec:
+      name: Pause seconds per cycle
+      description: Defaults to the device's Pause Duration setting.
+      selector:
+        number:
+          min: 5
+          max: 900
+          unit_of_measurement: s
+
+cancel_timed_run:
+  name: Cancel timed run
+  description: >-
+    Cancel the auto-off timer. The device is left running until the gating
+    engine or a manual command turns it off.
+  fields:
+    device_id:
+      name: Device ID
+      selector:
+        text:
+
+sync_schedules:
+  name: Sync schedules
+  description: >-
+    Check the device's schedule slots against the model and re-push on drift.
+  fields:
+    device_id:
+      name: Device ID
+      selector:
+        text:
+
+oil_refill:
+  name: Oil refill
+  description: Record an oil refill (optionally updating fill volume/date).
+  fields:
+    device_id:
+      name: Device ID
+      selector:
+        text:
+    fill_volume:
+      name: Fill volume (ml)
+      selector:
+        number:
+          min: 1
+          max: 5000
+          unit_of_measurement: ml
+    fill_date:
+      name: Fill date (YYYY-MM-DD)
+      selector:
+        text:
+    keep_calibration:
+      name: Keep calibration
+      default: true
+      selector:
+        boolean:
+
+oil_calibrate:
+  name: Oil calibration
+  description: >-
+    Drive the calibration workflow. action=set only stores the provided
+    values; start/end/finalize run the measured flow; manual applies a
+    manual override (rate, or start/end volume + runtime hours).
+  fields:
+    device_id:
+      name: Device ID
+      selector:
+        text:
+    action:
+      name: Action
+      required: true
+      selector:
+        select:
+          options:
+            - start
+            - end
+            - finalize
+            - manual
+            - set
+    measured_remaining:
+      name: Measured remaining (ml)
+      selector:
+        number:
+          min: 0
+          max: 5000
+          unit_of_measurement: ml
+    bottle_capacity:
+      name: Bottle capacity (ml)
+      selector:
+        number:
+          min: 1
+          max: 5000
+          unit_of_measurement: ml
+    fill_volume:
+      name: Fill volume (ml)
+      selector:
+        number:
+          min: 1
+          max: 5000
+          unit_of_measurement: ml
+    manual_rate_ml_per_hour:
+      name: Manual rate (ml/hour)
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 0.01
+          unit_of_measurement: ml/h
+    manual_start_volume:
+      name: Manual start volume (ml)
+      selector:
+        number:
+          min: 0
+          max: 5000
+    manual_end_volume:
+      name: Manual end volume (ml)
+      selector:
+        number:
+          min: 0
+          max: 5000
+    manual_runtime_hours:
+      name: Manual runtime (hours)
+      selector:
+        number:
+          min: 0
+          max: 10000
+          step: 0.1
 
 api_diagnostics:
   name: API diagnostics
