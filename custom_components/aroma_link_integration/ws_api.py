@@ -309,17 +309,50 @@ async def ws_timed_run_cancel(hass, connection, msg):
     connection.send_result(msg["id"], {})
 
 
+_ENTITY_SUFFIXES = {
+    "power": ("switch", "switch"),
+    "fan": ("switch", "fan"),
+    "schedule_enabled": ("switch", "schedule_active"),
+    "night_owl": ("switch", "night_owl"),
+    "work_number": ("number", "work_duration"),
+    "pause_number": ("number", "pause_duration"),
+    "scheduled_on": ("binary_sensor", "scheduled_on"),
+    "oil_level": ("sensor", "oil_level"),
+    "oil_remaining": ("sensor", "oil_remaining"),
+    "refill_button": ("button", "oil_refill_keep_calibration"),
+}
+
+
 @websocket_api.websocket_command({vol.Required("type"): "aroma_link/list_devices"})
 @websocket_api.async_response
 async def ws_list_devices(hass, connection, msg):
-    """Enumerate Aroma-Link devices across config entries."""
+    """Enumerate Aroma-Link devices with their resolved entity_ids.
+
+    Entity ids are looked up by unique_id in the registry, so the card
+    survives entity renames.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
     devices: list[dict[str, Any]] = []
     for entry_data in hass.data.get(DOMAIN, {}).values():
         if not isinstance(entry_data, dict):
             continue
+        username = entry_data.get("username", "")
         for device_id, coordinator in (entry_data.get("device_coordinators") or {}).items():
+            entities = {}
+            for key, (platform, suffix) in _ENTITY_SUFFIXES.items():
+                entity_id = registry.async_get_entity_id(
+                    platform, DOMAIN, f"{username}_{device_id}_{suffix}"
+                )
+                if entity_id:
+                    entities[key] = entity_id
             devices.append(
-                {"device_id": str(device_id), "name": coordinator.device_name}
+                {
+                    "device_id": str(device_id),
+                    "name": coordinator.device_name,
+                    "entities": entities,
+                }
             )
     connection.send_result(msg["id"], {"devices": devices})
 

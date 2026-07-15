@@ -457,6 +457,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         "reconcilers": reconcilers,
         "engines": engines,
         "timed_runs": timed_runs,
+        "username": username,
     }
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = entry_data
