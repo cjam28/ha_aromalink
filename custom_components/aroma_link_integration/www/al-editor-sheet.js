@@ -148,6 +148,17 @@ class AlEditorSheet extends LitElement {
     );
   }
 
+  _delete() {
+    if (this.saving) return;
+    this.dispatchEvent(
+      new CustomEvent("editor-delete", {
+        detail: { targets: this._targets },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
   _cancel() {
     this.dispatchEvent(
       new CustomEvent("editor-cancel", { detail: {}, bubbles: true, composed: true })
@@ -262,6 +273,18 @@ class AlEditorSheet extends LitElement {
         ? html`<div class="problems">⚠ ${problems.join(" · ")}</div>`
         : nothing}
       <div class="actions">
+        ${getWindow(this.schedule, this.target.day, this.target.index)
+          ? html`
+              <button
+                class="btn danger"
+                ?disabled=${this.saving}
+                title="Remove the selected window(s); later windows shift down"
+                @click=${this._delete}
+              >
+                Delete
+              </button>
+            `
+          : nothing}
         <button class="btn" @click=${this._cancel}>Cancel</button>
         <button
           class="btn primary"
@@ -478,6 +501,11 @@ class AlEditorSheet extends LitElement {
       background: var(--primary-color);
       border-color: var(--primary-color);
       color: var(--text-primary-color, #fff);
+    }
+    .btn.danger {
+      border-color: var(--error-color, #db4437);
+      color: var(--error-color, #db4437);
+      margin-right: auto;
     }
     .btn[disabled] {
       opacity: 0.5;

@@ -52,6 +52,10 @@ class GateConfig:
     occupancy_entity: str | None = None
     motion_entities: list[str] = field(default_factory=list)
     hvac_on_delay_minutes: int = 1
+    # Anti-flap: gates must stay false this long before power is cut mid-window
+    # (each power-on restarts the device's work/pause cycle, so brief gate
+    # flickers would reset diffusion cadence).
+    off_delay_minutes: int = 2
 
     @classmethod
     def from_options(cls, options: dict, device_id: str) -> "GateConfig":
@@ -61,6 +65,7 @@ class GateConfig:
             occupancy_entity=gates.get("occupancy_entity") or None,
             motion_entities=list(gates.get("motion_entities") or []),
             hvac_on_delay_minutes=int(gates.get("hvac_on_delay_minutes", 1)),
+            off_delay_minutes=int(gates.get("off_delay_minutes", 2)),
         )
 
     @property
@@ -96,6 +101,7 @@ class GatingEngine:
         self._last_commanded_at: datetime | None = None
         self._snapshot: dict = {}
         self._last_broadcast: dict | None = None
+        self._gates_false_since: datetime | None = None
 
     # ------------------------------------------------------------- lifecycle
 
@@ -204,6 +210,8 @@ class GatingEngine:
         if window_hit is not None:
             hvac_ok = self._hvac_gate()
             occupancy_ok = self._occupancy_gate()
+            allowed = hvac_ok and occupancy_ok
+            desired = self._apply_off_delay(allowed)
             self._snapshot = {
                 "decision": "window",
                 "window": {
@@ -217,8 +225,13 @@ class GatingEngine:
                 "hvac_action": self._hvac_action(),
                 "occupancy": occupancy_ok,
                 "occupancy_configured": bool(self._config.occupancy_entity),
+                "holding": desired and not allowed,
             }
-            return hvac_ok and occupancy_ok
+            return desired
+
+        # Not in a window: drop any pending off-delay hold so a stale
+        # timestamp can't cause an instant cut at the next window's start.
+        self._gates_false_since = None
 
         if night_owl_period(model, now):
             motion_ok = self._motion_gate(model.night_owl.linger_minutes)
@@ -233,6 +246,26 @@ class GatingEngine:
             return None
         state = self._hass.states.get(self._config.climate_entity)
         return state.attributes.get("hvac_action") if state else None
+
+    def _apply_off_delay(self, allowed: bool) -> bool:
+        """Absorb brief gate flickers mid-window.
+
+        Power only drops after the gates have been continuously false for
+        off_delay_minutes; a momentary all-clear on the occupancy group or an
+        HVAC blip no longer restarts the device's work/pause cycle. The hold
+        expires on a later evaluation (state change or the 60s tick).
+        """
+        if allowed:
+            self._gates_false_since = None
+            return True
+        if self._config.off_delay_minutes <= 0:
+            return False
+        now = dt_util.utcnow()
+        if self._gates_false_since is None:
+            self._gates_false_since = now
+        return now - self._gates_false_since < timedelta(
+            minutes=self._config.off_delay_minutes
+        )
 
     def snapshot(self) -> dict:
         """Last decision context (for the scheduled_on attributes / ws status)."""

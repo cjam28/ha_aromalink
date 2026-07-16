@@ -93,6 +93,27 @@ export function applyWindowEdit(schedule, targets, edited) {
   return next;
 }
 
+/**
+ * Remove windows at the given (day, index) targets, returning a new schedule.
+ * Later windows on the same day shift down (W3 becomes W2, etc.).
+ */
+export function removeWindows(schedule, targets) {
+  const next = cloneSchedule(schedule);
+  const byDay = new Map();
+  for (const { day, index } of targets) {
+    const key = String(day);
+    if (!byDay.has(key)) byDay.set(key, new Set());
+    byDay.get(key).add(index);
+  }
+  for (const [key, indexes] of byDay) {
+    if (!next.days[key]) continue;
+    next.days[key].windows = (next.days[key].windows || []).filter(
+      (_w, i) => !indexes.has(i)
+    );
+  }
+  return next;
+}
+
 /** Human summary for a grid cell. Disabled state is shown structurally
  * (dashed cell border), not in the label. */
 export function windowLabel(w) {

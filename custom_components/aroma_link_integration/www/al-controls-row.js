@@ -83,6 +83,14 @@ class AlControlsRow extends LitElement {
     if (!g || !g.decision) return nothing;
     if (g.decision === "window") {
       const pills = [];
+      if (g.holding) {
+        pills.push(html`
+          <span class="pill hold">
+            <ha-icon icon="mdi:timer-sand"></ha-icon>
+            Off-delay — holding power
+          </span>
+        `);
+      }
       if (g.hvac_configured) {
         const action = g.hvac_action || (g.hvac ? "circulating" : "idle");
         pills.push(html`

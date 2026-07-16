@@ -55,7 +55,8 @@
           "climate_entity": "HVAC gate: climate entity (diffuse only while air is circulating)",
           "occupancy_entity": "Occupancy gate: binary sensor (diffuse only while someone is home)",
           "motion_entities": "Night Owl motion sensors (linked area)",
-          "hvac_on_delay_minutes": "HVAC must be active for (minutes) before diffusing"
+          "hvac_on_delay_minutes": "HVAC must be active for (minutes) before diffusing",
+          "off_delay_minutes": "Off-delay (minutes): gates must stay blocked this long before power cuts mid-window (absorbs brief flickers)"
         }
       }
     },

@@ -14,7 +14,7 @@
 import { LitElement, html, css, nothing } from "./vendor/lit-all.min.js";
 import * as api from "./al-api.js";
 import { acquireStore, releaseStore } from "./al-store.js";
-import { applyWindowEdit, cloneSchedule, gateReason } from "./al-model.js";
+import { applyWindowEdit, cloneSchedule, gateReason, removeWindows } from "./al-model.js";
 import "./al-schedule-grid.js";
 import "./al-editor-sheet.js";
 import "./al-controls-row.js";
@@ -197,6 +197,27 @@ class AromaLinkScheduleCard extends LitElement {
     this._toastTimer = setTimeout(() => {
       this._toast = null;
     }, UNDO_TIMEOUT_MS);
+  }
+
+  async _deleteWindow(deviceId, detail) {
+    const store = this._stores.get(deviceId);
+    if (!store || !store.schedule || this._saving[deviceId]) return;
+    const next = removeWindows(store.schedule, detail.targets);
+    this._saving = { ...this._saving, [deviceId]: true };
+    try {
+      await store.save(next);
+      this._editTargets = { ...this._editTargets, [deviceId]: null };
+      this._showToast("Window deleted · pushing to device…", deviceId);
+    } catch (err) {
+      if (err?.code === "version_conflict") {
+        await store.handleConflict();
+        this._showToast("Schedule changed elsewhere — reloaded");
+      } else {
+        this._showToast(`Delete failed: ${err?.message || err}`);
+      }
+    } finally {
+      this._saving = { ...this._saving, [deviceId]: false };
+    }
   }
 
   async _saveWindow(deviceId, detail) {
@@ -417,6 +438,7 @@ class AromaLinkScheduleCard extends LitElement {
                       .target=${editTarget}
                       .saving=${!!this._saving[device.device_id]}
                       @editor-save=${(e) => this._saveWindow(device.device_id, e.detail)}
+                      @editor-delete=${(e) => this._deleteWindow(device.device_id, e.detail)}
                       @night-owl-save=${(e) => this._saveNightOwl(device.device_id, e.detail)}
                       @editor-cancel=${() => {
                         this._editTargets = {
