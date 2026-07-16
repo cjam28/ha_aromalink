@@ -424,7 +424,10 @@ class AromaLinkOptionsFlowHandler(config_entries.OptionsFlow):
                 "occupancy_entity": user_input.get("occupancy_entity") or None,
                 "motion_entities": user_input.get("motion_entities") or [],
                 "hvac_on_delay_minutes": user_input.get("hvac_on_delay_minutes", 1),
-                "off_delay_minutes": user_input.get("off_delay_minutes", 2),
+                "hvac_off_delay_minutes": user_input.get("hvac_off_delay_minutes", 2),
+                "occupancy_off_delay_minutes": user_input.get(
+                    "occupancy_off_delay_minutes", 2
+                ),
             }
             new_options = {**self._config_entry.options, "gates": gates_all}
             return self.async_create_entry(title="", data=new_options)
@@ -453,9 +456,17 @@ class AromaLinkOptionsFlowHandler(config_entries.OptionsFlow):
                 default=current.get("hvac_on_delay_minutes", 1),
             ): vol.All(vol.Coerce(int), vol.Range(min=0, max=60)),
             vol.Optional(
-                "off_delay_minutes",
-                default=current.get("off_delay_minutes", 2),
-            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=60)),
+                "hvac_off_delay_minutes",
+                default=current.get(
+                    "hvac_off_delay_minutes", current.get("off_delay_minutes", 2)
+                ),
+            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=240)),
+            vol.Optional(
+                "occupancy_off_delay_minutes",
+                default=current.get(
+                    "occupancy_off_delay_minutes", current.get("off_delay_minutes", 2)
+                ),
+            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=240)),
         }
 
         device_name = dict(self._devices()).get(device_id, device_id)

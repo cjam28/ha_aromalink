@@ -53,10 +53,11 @@
         "description": "Scheduled windows only diffuse while these gates pass; Night Owl runs after hours only while motion is detected. Leave a gate empty to disable it.",
         "data": {
           "climate_entity": "HVAC gate: climate entity (diffuse only while air is circulating)",
-          "occupancy_entity": "Occupancy gate: binary sensor (diffuse only while someone is home)",
+          "occupancy_entity": "Occupancy gate: binary sensor (diffuse only while the area is occupied)",
           "motion_entities": "Night Owl motion sensors (linked area)",
-          "hvac_on_delay_minutes": "HVAC must be active for (minutes) before diffusing",
-          "off_delay_minutes": "Off-delay (minutes): gates must stay blocked this long before power cuts mid-window (absorbs brief flickers)"
+          "hvac_on_delay_minutes": "HVAC on-delay (minutes): air must circulate this long before diffusing STARTS",
+          "hvac_off_delay_minutes": "HVAC off-delay (minutes): keep diffusing this long after air STOPS — absorbs short HVAC rests between cycles",
+          "occupancy_off_delay_minutes": "Occupancy off-delay (minutes): keep diffusing this long after the area reads EMPTY — absorbs brief presence gaps"
         }
       }
     },
