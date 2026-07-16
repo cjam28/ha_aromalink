@@ -1,5 +1,5 @@
 ---
-id: TASK-7
+id: TASK-8
 title: 'Card: version-stamp module imports so updates don''t require hard refresh'
 status: To Do
 assignee: []
